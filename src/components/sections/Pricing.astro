@@ -1,0 +1,104 @@
+---
+import Section from '../ui/Section.astro';
+import Card from '../ui/Card.astro';
+import Button from '../ui/Button.astro';
+
+const plans = [
+  {
+    name: 'Emprendedor',
+    price: '$29.990',
+    uf: '~0,8 UF',
+    period: '/mes',
+    features: [
+      'Hasta 50 recetas',
+      '1 usuario',
+      'Inventario básico',
+      'Calculadora de costos',
+      'Soporte por email',
+    ],
+    cta: 'Empezar gratis',
+    popular: false,
+  },
+  {
+    name: 'Productor',
+    price: '$59.990',
+    uf: '~1,6 UF',
+    period: '/mes',
+    features: [
+      'Recetas ilimitadas',
+      'Hasta 3 usuarios',
+      'Inventario avanzado con alertas',
+      'Facturación electrónica (DTE)',
+      'Gestión de ventas',
+      'Reportes de rentabilidad',
+      'Soporte prioritario',
+    ],
+    cta: 'Empezar gratis',
+    popular: true,
+  },
+  {
+    name: 'Empresa',
+    price: '$99.990',
+    uf: '~2,7 UF',
+    period: '/mes',
+    features: [
+      'Todo del plan Productor',
+      'Usuarios ilimitados',
+      'Control de caja y cuentas bancarias',
+      'Múltiples bodegas',
+      'API de integración',
+      'Soporte dedicado',
+      'Onboarding personalizado',
+    ],
+    cta: 'Hablar con ventas',
+    popular: false,
+  },
+];
+---
+
+<Section id="precios" variant="default">
+  <div class="text-center max-w-2xl mx-auto mb-12 sm:mb-16">
+    <h2 class="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">Planes que crecen con tu negocio</h2>
+    <p class="mt-4 text-lg text-slate-600">Todos los planes incluyen 14 días gratis. Sin tarjeta de crédito. Sin compromiso.</p>
+  </div>
+  <div class="grid md:grid-cols-3 gap-6 lg:gap-8 max-w-5xl mx-auto">
+    {plans.map((plan) => (
+      <Card
+        variant={plan.popular ? 'elevated' : 'default'}
+        class={`relative ${plan.popular ? 'ring-2 ring-brand-500 shadow-xl shadow-brand-500/10' : 'hover:shadow-lg transition-shadow'}`}
+      >
+        {plan.popular && (
+          <div class="absolute -top-3 left-1/2 -translate-x-1/2">
+            <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-brand-600 text-white shadow-md">Más popular</span>
+          </div>
+        )}
+        <div class="text-center mb-6">
+          <h3 class="text-lg font-bold text-slate-900">{plan.name}</h3>
+          <div class="mt-3">
+            <span class="text-4xl font-extrabold text-slate-900">{plan.price}</span>
+            <span class="text-slate-500 text-sm">{plan.period}</span>
+          </div>
+          <p class="text-slate-400 text-xs mt-1">{plan.uf}</p>
+        </div>
+        <ul class="space-y-3 mb-8">
+          {plan.features.map((feature) => (
+            <li class="flex items-start gap-2 text-sm text-slate-700">
+              <svg class="w-5 h-5 text-green-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              </svg>
+              {feature}
+            </li>
+          ))}
+        </ul>
+        <Button
+          href="#precios"
+          variant={plan.popular ? 'primary' : 'ghost'}
+          class="w-full"
+        >
+          {plan.cta}
+        </Button>
+      </Card>
+    ))}
+  </div>
+  <p class="text-center text-xs text-slate-400 mt-8">Precios en pesos chilenos, sujetos a variación UF.</p>
+</Section>

@@ -1,0 +1,18 @@
+---
+interface Props {
+  variant?: 'default' | 'elevated' | 'outlined';
+  class?: string;
+}
+
+const { variant = 'default', class: extraClass = '' } = Astro.props;
+
+const variants = {
+  default: 'bg-white border border-slate-200/80',
+  elevated: 'bg-white border border-slate-200/80 shadow-lg shadow-slate-900/5',
+  outlined: 'bg-transparent border-2 border-slate-200',
+};
+---
+
+<div class={`rounded-2xl p-6 ${variants[variant]} ${extraClass}`}>
+  <slot />
+</div>

@@ -1,0 +1,67 @@
+---
+import Section from '../ui/Section.astro';
+
+const faqs = [
+  {
+    q: '¿Qué es MiMargen y para qué sirve?',
+    a: 'MiMargen es un software de gestión para pequeños productores que te permite calcular el costo real de tus productos usando recetas, controlar tu inventario, gestionar ventas y emitir facturación electrónica. Todo en un solo lugar.',
+  },
+  {
+    q: '¿Cómo se calcula el costo de producción con recetas?',
+    a: 'Creas una receta con los ingredientes y cantidades que usas. MiMargen toma el costo de cada insumo de tu inventario, le suma la mano de obra, los gastos fijos que asignes y la merma del proceso. El resultado es el costo real por unidad producida.',
+  },
+  {
+    q: '¿MiMargen sirve si no hago alimentos?',
+    a: 'Sí. Aunque el concepto de "receta" viene del mundo gastronómico, funciona para cualquier producto que se fabrique combinando materiales: cosméticos, velas, muebles, textiles. Si transformas insumos en un producto terminado, MiMargen te sirve.',
+  },
+  {
+    q: '¿Puedo emitir facturas electrónicas en Chile?',
+    a: 'Sí. MiMargen está integrado con el SII y te permite emitir boletas, facturas y guías de despacho electrónicas directamente desde la plataforma. No necesitas otro software para cumplir con tus obligaciones tributarias.',
+  },
+  {
+    q: '¿Tiene período de prueba gratis?',
+    a: 'Sí. Todos los planes incluyen 14 días de prueba gratis, sin necesidad de ingresar tarjeta de crédito. Puedes usar todas las funciones del plan que elijas durante la prueba.',
+  },
+  {
+    q: '¿Puedo migrar mis datos desde Excel?',
+    a: 'Sí. MiMargen permite importar tu inventario, clientes y productos desde archivos CSV o Excel. Además, nuestro equipo de soporte te ayuda en el proceso para que no pierdas nada.',
+  },
+  {
+    q: '¿Qué es la merma y por qué importa?',
+    a: 'La merma es el material que se pierde durante la producción — lo que se evapora, se quema, se derrama o queda en los recipientes. Si no la consideras, tu costo real siempre va a ser mayor al que calculas. MiMargen te permite asignar un porcentaje de merma por receta para que el costo sea preciso.',
+  },
+  {
+    q: '¿MiMargen funciona para negocios fuera de Chile?',
+    a: 'La funcionalidad de costeo por receta, inventario y ventas funciona en cualquier país. La facturación electrónica está adaptada al SII de Chile, pero estamos trabajando en integraciones para otros países de Latinoamérica.',
+  },
+  {
+    q: '¿Necesito saber de contabilidad para usarlo?',
+    a: 'No. MiMargen está diseñado para productores, no para contadores. Si sabes cuánto te cuesta cada ingrediente y cuánto tiempo te lleva producir, el sistema hace el resto. Los reportes son claros y en lenguaje simple.',
+  },
+  {
+    q: '¿Puedo cambiar de plan en cualquier momento?',
+    a: 'Sí. Puedes subir o bajar de plan cuando quieras. El cambio se aplica de forma proporcional y no pierdes ninguno de tus datos.',
+  },
+];
+---
+
+<Section id="faq" variant="alt">
+  <div class="text-center max-w-2xl mx-auto mb-12 sm:mb-16">
+    <h2 class="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">Preguntas frecuentes</h2>
+  </div>
+  <div class="max-w-3xl mx-auto space-y-3">
+    {faqs.map((faq) => (
+      <details class="group bg-white border border-slate-200/80 rounded-xl overflow-hidden open:shadow-md transition-shadow">
+        <summary class="flex items-center justify-between cursor-pointer p-5 text-base font-semibold text-slate-900 hover:text-brand-600 transition-colors list-none">
+          {faq.q}
+          <svg class="w-5 h-5 text-slate-400 group-open:rotate-180 transition-transform shrink-0 ml-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+          </svg>
+        </summary>
+        <div class="px-5 pb-5 text-sm text-slate-600 leading-relaxed">
+          {faq.a}
+        </div>
+      </details>
+    ))}
+  </div>
+</Section>

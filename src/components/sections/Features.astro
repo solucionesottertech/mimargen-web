@@ -1,0 +1,103 @@
+---
+import Section from '../ui/Section.astro';
+import Card from '../ui/Card.astro';
+
+const features = [
+  {
+    icon: `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>`,
+    title: 'Costeo por receta',
+    description: 'Calcula el costo real de cada producto incluyendo materiales, mano de obra, merma y gastos fijos.',
+  },
+  {
+    icon: `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>`,
+    title: 'Inventario en tiempo real',
+    description: 'Cada vez que produces o vendes, tu stock se actualiza solo. Alertas cuando algo está por agotarse.',
+  },
+  {
+    icon: `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" /></svg>`,
+    title: 'Gestión de ventas',
+    description: 'Cotizaciones, órdenes de venta y seguimiento de clientes. Todo conectado a tu inventario.',
+  },
+  {
+    icon: `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" /></svg>`,
+    title: 'Facturación electrónica',
+    description: 'Emite boletas, facturas y guías de despacho directamente desde MiMargen. Integrado con el SII de Chile.',
+  },
+  {
+    icon: `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>`,
+    title: 'Control de caja',
+    description: 'Gestiona tus cuentas bancarias, registra ingresos y egresos, y mira tu flujo de caja en un vistazo.',
+  },
+  {
+    icon: `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>`,
+    title: 'Reportes claros',
+    description: 'Rentabilidad por producto, productos más vendidos y evolución de costos. Sin contabilidad avanzada.',
+  },
+];
+---
+
+<Section id="features" variant="alt">
+  <div class="text-center max-w-2xl mx-auto mb-12 sm:mb-16">
+    <h2 class="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">Más que costos. Tu negocio entero.</h2>
+    <p class="mt-4 text-lg text-slate-600">Todo lo que otros ERPs no tienen en un solo lugar.</p>
+  </div>
+  <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+    {features.map((f) => (
+      <Card variant="elevated" class="hover:shadow-xl transition-shadow group">
+        <div class="w-10 h-10 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center mb-4 group-hover:bg-brand-100 transition-colors">
+          {f.icon}
+        </div>
+        <h3 class="text-base font-bold text-slate-900 mb-1">{f.title}</h3>
+        <p class="text-slate-600 text-sm leading-relaxed">{f.description}</p>
+      </Card>
+    ))}
+  </div>
+
+  <!-- Comparison Table -->
+  <div class="mt-16 max-w-3xl mx-auto">
+    <div class="bg-white rounded-2xl border border-slate-200/80 shadow-lg shadow-slate-900/5 overflow-hidden">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="bg-slate-50">
+            <th class="text-left py-4 px-5 font-bold text-slate-900"></th>
+            <th class="text-center py-4 px-5 font-bold text-brand-600">MiMargen</th>
+            <th class="text-center py-4 px-5 font-bold text-slate-500">Excel</th>
+            <th class="text-center py-4 px-5 font-bold text-slate-500">ERPs tradicionales</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          <tr>
+            <td class="py-3 px-5 text-slate-700 font-medium">Costeo por receta</td>
+            <td class="py-3 px-5 text-center text-green-600 font-bold">✅ Incluido</td>
+            <td class="py-3 px-5 text-center text-slate-400">Fórmulas manuales</td>
+            <td class="py-3 px-5 text-center text-red-400">No existe</td>
+          </tr>
+          <tr>
+            <td class="py-3 px-5 text-slate-700 font-medium">Facturación electrónica</td>
+            <td class="py-3 px-5 text-center text-green-600 font-bold">✅ Integrada</td>
+            <td class="py-3 px-5 text-center text-slate-400">Por separado</td>
+            <td class="py-3 px-5 text-center text-yellow-500">A veces</td>
+          </tr>
+          <tr>
+            <td class="py-3 px-5 text-slate-700 font-medium">Inventario automático</td>
+            <td class="py-3 px-5 text-center text-green-600 font-bold">En tiempo real</td>
+            <td class="py-3 px-5 text-center text-slate-400">Manual</td>
+            <td class="py-3 px-5 text-center text-yellow-500">Complejo</td>
+          </tr>
+          <tr>
+            <td class="py-3 px-5 text-slate-700 font-medium">Curva de aprendizaje</td>
+            <td class="py-3 px-5 text-center text-green-600 font-bold">Horas</td>
+            <td class="py-3 px-5 text-center text-slate-400">—</td>
+            <td class="py-3 px-5 text-center text-red-400">Semanas</td>
+          </tr>
+          <tr>
+            <td class="py-3 px-5 text-slate-700 font-medium">Precio accesible</td>
+            <td class="py-3 px-5 text-center text-green-600 font-bold">Desde $29.990/mes</td>
+            <td class="py-3 px-5 text-center text-slate-400">"Gratis"</td>
+            <td class="py-3 px-5 text-center text-red-400">$200.000+/mes</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</Section>

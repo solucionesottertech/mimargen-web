@@ -1,0 +1,29 @@
+---
+import Section from '../ui/Section.astro';
+import Card from '../ui/Card.astro';
+
+const industries = [
+  { emoji: '🍞', name: 'Panaderías y pastelerías', benefit: 'Calcula el costo exacto de cada receta — desde un pan de masa madre hasta una torta de tres pisos.' },
+  { emoji: '☕', name: 'Tostadores de café', benefit: 'Sabe cuánto te cuesta realmente cada bolsa después de la merma del tostado y el empaque.' },
+  { emoji: '🧴', name: 'Cosmética natural', benefit: 'Controla las proporciones de cada fórmula y el costo real por frasco, crema o jabón.' },
+  { emoji: '🍫', name: 'Chocolaterías y confitería', benefit: 'Cada gramo de cacao cuenta. Costea con precisión y ajusta tus precios sin perder clientes.' },
+  { emoji: '🧀', name: 'Alimentos artesanales', benefit: 'Desde mermeladas hasta quesos — sabe cuánto te cuesta producir y cuánto realmente ganas.' },
+  { emoji: '🏭', name: 'Pequeñas fábricas', benefit: 'Si transformas materia prima en producto terminado, MiMargen te muestra tu margen real.' },
+];
+---
+
+<Section id="para-quien" variant="default">
+  <div class="text-center max-w-2xl mx-auto mb-12 sm:mb-16">
+    <h2 class="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">Hecho para quienes producen</h2>
+    <p class="mt-4 text-lg text-slate-600">Si transformas materia prima en producto terminado, MiMargen es para ti.</p>
+  </div>
+  <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+    {industries.map((ind) => (
+      <Card variant="elevated" class="hover:shadow-xl transition-shadow">
+        <div class="text-3xl mb-4">{ind.emoji}</div>
+        <h3 class="text-base font-bold text-slate-900 mb-2">{ind.name}</h3>
+        <p class="text-slate-600 text-sm leading-relaxed">{ind.benefit}</p>
+      </Card>
+    ))}
+  </div>
+</Section>

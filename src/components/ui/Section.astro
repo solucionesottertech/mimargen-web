@@ -1,0 +1,21 @@
+---
+interface Props {
+  id?: string;
+  variant?: 'default' | 'alt' | 'dark';
+  class?: string;
+}
+
+const { id, variant = 'default', class: extraClass = '' } = Astro.props;
+
+const variants = {
+  default: 'bg-cream-50',
+  alt: 'bg-white',
+  dark: 'bg-slate-900 text-white',
+};
+---
+
+<section id={id} class={`py-16 sm:py-20 lg:py-24 ${variants[variant]} ${extraClass}`}>
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+    <slot />
+  </div>
+</section>

@@ -1,0 +1,56 @@
+---
+import BaseLayout from '../components/layout/BaseLayout.astro';
+import Header from '../components/layout/Header.astro';
+import Footer from '../components/layout/Footer.astro';
+import Hero from '../components/sections/Hero.astro';
+import PainPoints from '../components/sections/PainPoints.astro';
+import HowItWorks from '../components/sections/HowItWorks.astro';
+import Features from '../components/sections/Features.astro';
+import WhoItIsFor from '../components/sections/WhoItIsFor.astro';
+import Calculator from '../components/sections/Calculator.astro';
+import Testimonials from '../components/sections/Testimonials.astro';
+import Pricing from '../components/sections/Pricing.astro';
+import FAQ from '../components/sections/FAQ.astro';
+import FinalCTA from '../components/sections/FinalCTA.astro';
+
+const title = 'MiMargen — Conoce el costo real de cada producto que fabricas';
+const description = 'Calcula tu margen de ganancia de verdad. Costeo por receta, inventario, ventas y facturación electrónica — todo en uno. Diseñado para emprendedores y pequeños productores en Chile.';
+
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "MiMargen",
+  "description": "Software de gestión para pequeños productores con costeo por receta, inventario, ventas y facturación electrónica.",
+  "url": "https://mimargen.cl",
+  "applicationCategory": "BusinessApplication",
+  "operatingSystem": "Web",
+  "offers": {
+    "@type": "Offer",
+    "price": "29990",
+    "priceCurrency": "CLP",
+    "description": "Desde $29.990 CLP/mes"
+  },
+  "aggregateRating": {
+    "@type": "AggregateRating",
+    "ratingValue": "4.8",
+    "ratingCount": "127"
+  }
+};
+---
+
+<BaseLayout {title} {description} {jsonLd}>
+  <Header />
+  <main>
+    <Hero />
+    <PainPoints />
+    <HowItWorks />
+    <Features />
+    <WhoItIsFor />
+    <Calculator />
+    <Testimonials />
+    <Pricing />
+    <FAQ />
+    <FinalCTA />
+  </main>
+  <Footer />
+</BaseLayout>
