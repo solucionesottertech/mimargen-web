@@ -1,7 +1,12 @@
-# PHP
-*.log
-*.cache
-data/_platform/leads.dat
+# Sensitive data
+data/_platform/*.dat
+.env
+.env.production
+
+# Build/cache (not needed in PHP project)
+dist/
+.astro/
+node_modules/
 
 # macOS
 .DS_Store
@@ -9,9 +14,6 @@ data/_platform/leads.dat
 # IDE
 .idea/
 .vscode/
-
-# OpenSpec (optional local artifacts)
-openspec/
 
 # Skill cache
 .atl/.skill-registry.cache.json

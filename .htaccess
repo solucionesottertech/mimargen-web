@@ -1,0 +1,64 @@
+# Apache .htaccess — MiMargen Landing
+# Colocar en el directorio público donde vive landing.php
+
+# --- Proteger directorios sensibles ---
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Bloquear acceso directo a data/
+    RewriteRule ^data/ - [F,L]
+
+    # Bloquear acceso a core/
+    RewriteRule ^core/ - [F,L]
+
+    # Bloquear acceso a scripts/
+    RewriteRule ^scripts/ - [F,L]
+
+    # Bloquear acceso a openspec/
+    RewriteRule ^openspec/ - [F,L]
+</IfModule>
+
+# --- MIME types para fuentes ---
+<IfModule mod_mime.c>
+    AddType font/woff2 .woff2
+    AddType text/css .css
+    AddType application/javascript .js
+</IfModule>
+
+# --- Caché para assets estáticos ---
+<IfModule mod_expires.c>
+    ExpiresActive On
+
+    # CSS: 1 mes
+    <FilesMatch "\.(css)$">
+        ExpiresDefault "access plus 1 month"
+        Header append Cache-Control "public, immutable"
+    </FilesMatch>
+
+    # Fuentes: 1 año
+    <FilesMatch "\.(woff2)$">
+        ExpiresDefault "access plus 1 year"
+        Header append Cache-Control "public, immutable"
+    </FilesMatch>
+
+    # JS: 1 mes
+    <FilesMatch "\.(js)$">
+        ExpiresDefault "access plus 1 month"
+        Header append Cache-Control "public"
+    </FilesMatch>
+</IfModule>
+
+# --- CORS para fuentes ---
+<IfModule mod_headers.c>
+    <FilesMatch "\.(woff2)$">
+        Header set Access-Control-Allow-Origin "*"
+    </FilesMatch>
+</IfModule>
+
+# --- Seguridad: ocultar versión PHP ---
+<IfModule mod_php.c>
+    php_flag expose_php Off
+</IfModule>
+
+# --- Landing como default ---
+DirectoryIndex landing.php
