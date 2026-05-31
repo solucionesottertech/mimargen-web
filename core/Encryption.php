@@ -1,35 +1,76 @@
 <?php
 /**
- * MiMargen Encryption
+ * Encryption
  *
- * Placeholder for encryption utilities.
- * Will be implemented when secrets or sensitive data require encryption at rest.
+ * AES-256-CBC encryption for sensitive data at rest.
+ * Matches OtterErp Encryption contract.
+ *
+ * Usage:
+ *   $enc = new Encryption(APP_SECRET);
+ *   $cipher = $enc->encrypt($plaintext);
+ *   $plain  = $enc->decrypt($cipher);
  */
 class Encryption
 {
+    private string $key;
+    private string $method = 'aes-256-cbc';
+
     /**
-     * Placeholder: encrypt a string.
-     *
-     * @param string $plaintext
-     * @return string
-     * @throws \RuntimeException
+     * @param string $secret Application secret (used to derive encryption key)
      */
-    public static function encrypt(string $plaintext): string
+    public function __construct(string $secret)
     {
-        // TODO: implement sodium-based encryption when needed
-        throw new \RuntimeException('Encryption::encrypt() is not yet implemented.');
+        // Derive a 32-byte key from the secret
+        $this->key = hash('sha256', $secret, true);
     }
 
     /**
-     * Placeholder: decrypt a string.
+     * Encrypt a string. Returns base64-encoded "iv:ciphertext".
      *
-     * @param string $ciphertext
+     * @param string $plaintext
      * @return string
-     * @throws \RuntimeException
      */
-    public static function decrypt(string $ciphertext): string
+    public function encrypt(string $plaintext): string
     {
-        // TODO: implement sodium-based decryption when needed
-        throw new \RuntimeException('Encryption::decrypt() is not yet implemented.');
+        $ivLen = openssl_cipher_iv_length($this->method);
+        $iv = openssl_random_pseudo_bytes($ivLen);
+        if ($iv === false) {
+            throw new \RuntimeException('Failed to generate IV');
+        }
+
+        $ciphertext = openssl_encrypt($plaintext, $this->method, $this->key, OPENSSL_RAW_DATA, $iv);
+        if ($ciphertext === false) {
+            throw new \RuntimeException('Encryption failed');
+        }
+
+        return base64_encode($iv . ':' . $ciphertext);
+    }
+
+    /**
+     * Decrypt a base64-encoded "iv:ciphertext" string.
+     *
+     * @param string $payload
+     * @return string
+     */
+    public function decrypt(string $payload): string
+    {
+        $decoded = base64_decode($payload, true);
+        if ($decoded === false) {
+            throw new \RuntimeException('Invalid payload encoding');
+        }
+
+        $parts = explode(':', $decoded, 2);
+        if (count($parts) !== 2) {
+            throw new \RuntimeException('Invalid payload format');
+        }
+
+        [$iv, $ciphertext] = $parts;
+
+        $plaintext = openssl_decrypt($ciphertext, $this->method, $this->key, OPENSSL_RAW_DATA, $iv);
+        if ($plaintext === false) {
+            throw new \RuntimeException('Decryption failed');
+        }
+
+        return $plaintext;
     }
 }

@@ -2,108 +2,151 @@
 /**
  * MiMargen Landing Page
  *
- * Entry point for the apex domain (mimargen.cl).
+ * Single-file PHP entry point for the apex domain (mimargen.cl).
  * Bootstraps the PHP backend, injects PlatformSettings variables,
- * generates canonical/OG meta tags, and handles the honeypot lead-capture form.
+ * generates canonical/OG meta tags, and handles honeypot lead-capture.
  */
+
 require_once __DIR__ . '/core/bootstrap.php';
-require_once __DIR__ . '/core/PlatformSettings.php';
-require_once __DIR__ . '/core/JsonStorage.php';
 
-$settings = PlatformSettings::load();
+// Load platform settings (OtterErp contract: requires rootDataDir)
+$rootDataDir = dirname(__DIR__) . '/data';
+$settings    = PlatformSettings::load($rootDataDir);
 
-$contactEmail    = $settings['contact_email']    ?? 'hola@mimargen.cl';
-$contactPhone    = $settings['contact_phone']    ?? '';
-$contactWhatsApp = $settings['contact_whatsapp'] ?? '569XXXXXXXX';
-$contactCity     = $settings['contact_city']     ?? 'Chile';
+// Extract settings with fallbacks
 $heroTitle       = $settings['hero_title']       ?? 'Conoce cuánto ganas realmente con cada producto';
-$heroLead        = $settings['hero_lead']        ?? '';
-$socialLinkedin  = $settings['social_linkedin']  ?? 'https://linkedin.com/company/mimargen';
-$socialInstagram = $settings['social_instagram'] ?? 'https://instagram.com/mimargen';
-$metaTitle       = $settings['meta_title']       ?? 'MiMargen — Conoce el costo real de cada producto que fabricas';
-$metaDescription = $settings['meta_description'] ?? 'Calcula tu margen de ganancia de verdad. Costeo por receta, inventario, ventas y facturación electrónica — todo en uno.';
-$ogImage         = $settings['og_image']         ?? '/og-image.png';
+$heroLead        = $settings['hero_lead']        ?? 'Crea recetas con tus ingredientes, calcula el costo real de producción —incluyendo merma— y conoce tu margen de ganancia real. Todo en un solo lugar, sin hojas de cálculo que no te cierran.';
+$contactEmail    = $settings['contact_email']    ?? null;
+$contactPhone    = $settings['contact_phone']    ?? '+56 9 0000 0000';
+$contactWhatsApp = $settings['contact_whatsapp'] ?? '56900000000';
+$contactCity     = $settings['contact_city']     ?? 'Santiago, Chile';
+$socialLinkedin  = $settings['social_linkedin']  ?? null;
+$socialInstagram = $settings['social_instagram'] ?? null;
 
-// Honeypot + lead form handling
+// Logo (separate methods, not in load())
+$brandLogo = PlatformSettings::brandLogoDataUrl($rootDataDir);
+
+// Canonical URL
+$scheme    = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+$host      = $_SERVER['HTTP_HOST'] ?? (defined('BASE_DOMAIN') ? BASE_DOMAIN : 'mimargen.cl');
+$canonical = $scheme . '://' . $host . '/';
+
+// Page meta (hardcoded — not in PlatformSettings whitelist)
+$metaTitle       = 'MiMargen · Calcula el costo y margen real de tus recetas';
+$metaDescription = 'Calcula tu margen de ganancia de verdad. Costeo por receta, merma, mano de obra y precio de venta. Diseñado para emprendedores y pequeños productores en Chile.';
+
+// ── Handle POST form submission (honeypot + lead capture) ──────
+// Contract: must match OtterErp landing.php handler exactly
 $formError   = '';
 $formSuccess = false;
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'lead') {
+
+    // Honeypot — if bot fills this, silently discard
     if (!empty($_POST['website'] ?? '')) {
-        $formSuccess = true; // honeypot — silent success
+        $formSuccess = true;
     } else {
-        $email = trim((string)($_POST['email'] ?? ''));
-        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            $formError = 'Necesitamos un correo válido.';
+        $formNombre   = trim((string)($_POST['nombre']   ?? ''));
+        $formEmpresa  = trim((string)($_POST['empresa']  ?? ''));
+        $formEmail    = trim((string)($_POST['email']    ?? ''));
+        $formTelefono = trim((string)($_POST['telefono'] ?? ''));
+        $formMensaje  = trim((string)($_POST['mensaje']  ?? ''));
+
+        // Server-side validation (matches OtterErp contract)
+        if (mb_strlen($formNombre) < 2) {
+            $formError = 'Cuéntanos tu nombre.';
+        } elseif (mb_strlen($formEmpresa) < 2) {
+            $formError = 'Indica el nombre de tu empresa.';
+        } elseif (!filter_var($formEmail, FILTER_VALIDATE_EMAIL)) {
+            $formError = 'Necesitamos un correo válido para escribirte.';
         } else {
             try {
-                JsonStorage::save('leads', [
-                    'email'      => $email,
-                    'nombre'     => trim((string)($_POST['nombre'] ?? '')),
-                    'empresa'    => trim((string)($_POST['empresa'] ?? '')),
-                    'telefono'   => trim((string)($_POST['telefono'] ?? '')),
-                    'mensaje'    => trim((string)($_POST['mensaje'] ?? '')),
+                $platformDir = dirname(__DIR__) . '/data/_platform';
+                if (!is_dir($platformDir)) {
+                    @mkdir($platformDir, 0750, true);
+                }
+                $enc     = new Encryption(APP_SECRET);
+                $storage = new JsonStorage($platformDir, $enc);
+                $storage->insert('leads', [
+                    'nombre'     => $formNombre,
+                    'empresa'    => $formEmpresa,
+                    'email'      => $formEmail,
+                    'telefono'   => $formTelefono,
+                    'mensaje'    => $formMensaje,
                     'ip'         => $_SERVER['REMOTE_ADDR'] ?? '',
                     'user_agent' => substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 255),
+                    'referer'    => substr((string)($_SERVER['HTTP_REFERER']    ?? ''), 0, 255),
                     'created_at' => date('c'),
                 ]);
                 $formSuccess = true;
             } catch (Throwable $e) {
-                $formError = 'No pudimos guardar tu solicitud. Escríbenos a ' . htmlspecialchars($contactEmail) . '.';
+                $displayEmail = $contactEmail ?? 'contacto@' . $host;
+                $formError = 'No pudimos guardar tu solicitud. Escríbenos directo a ' . htmlspecialchars($displayEmail) . '.';
             }
         }
     }
 }
 
-$scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-$canonical = $scheme . '://' . ($_SERVER['HTTP_HOST'] ?? 'mimargen.cl') . '/';
-$year = date('Y');
+// JSON-LD Schema
+$jsonLd = [
+    '@context' => 'https://schema.org',
+    '@type' => 'SoftwareApplication',
+    'name' => 'MiMargen',
+    'description' => 'Software de gestión para pequeños productores con costeo por receta, inventario, ventas y facturación electrónica.',
+    'url' => $canonical,
+    'applicationCategory' => 'BusinessApplication',
+    'operatingSystem' => 'Web',
+    'offers' => [
+        '@type' => 'Offer',
+        'price' => '29990',
+        'priceCurrency' => 'CLP',
+        'description' => 'Desde $29.990 CLP/mes',
+    ],
+    'aggregateRating' => [
+        '@type' => 'AggregateRating',
+        'ratingValue' => '4.8',
+        'ratingCount' => '127',
+    ],
+];
+$jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 ?>
-<!DOCTYPE html>
-<html lang="es">
+<!doctype html>
+<html lang="es-CL">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= htmlspecialchars($metaTitle) ?></title>
-    <meta name="description" content="<?= htmlspecialchars($metaDescription) ?>">
-    <link rel="canonical" href="<?= htmlspecialchars($canonical) ?>">
+    <title><?= htmlspecialchars($metaTitle, ENT_QUOTES, 'UTF-8') ?></title>
+    <meta name="title" content="<?= htmlspecialchars($metaTitle, ENT_QUOTES, 'UTF-8') ?>">
+    <meta name="description" content="<?= htmlspecialchars($metaDescription, ENT_QUOTES, 'UTF-8') ?>">
+    <meta name="keywords" content="calcular costo de producción, margen de ganancia, costeo por receta, software inventario, ERP pymes Chile, control de stock, facturación electrónica, MiMargen">
+    <meta name="author" content="MiMargen">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="<?= htmlspecialchars($canonicalURL, ENT_QUOTES, 'UTF-8') ?>">
 
-    <!-- Open Graph -->
+    <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website">
-    <meta property="og:url" content="<?= htmlspecialchars($canonical) ?>">
-    <meta property="og:title" content="<?= htmlspecialchars($metaTitle) ?>">
-    <meta property="og:description" content="<?= htmlspecialchars($metaDescription) ?>">
-    <meta property="og:image" content="<?= htmlspecialchars($scheme . '://' . ($_SERVER['HTTP_HOST'] ?? 'mimargen.cl') . $ogImage) ?>">
+    <meta property="og:url" content="<?= htmlspecialchars($canonicalURL, ENT_QUOTES, 'UTF-8') ?>">
+    <meta property="og:title" content="<?= htmlspecialchars($metaTitle, ENT_QUOTES, 'UTF-8') ?>">
+    <meta property="og:description" content="<?= htmlspecialchars($metaDescription, ENT_QUOTES, 'UTF-8') ?>">
+    <meta property="og:image" content="<?= htmlspecialchars($ogImage, ENT_QUOTES, 'UTF-8') ?>">
+    <meta property="og:locale" content="es_CL">
+    <meta property="og:site_name" content="MiMargen">
 
-    <!-- JSON-LD SoftwareApplication schema -->
-    <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "SoftwareApplication",
-      "name": "MiMargen",
-      "description": "Software de gestión para pequeños productores con costeo por receta, inventario, ventas y facturación electrónica.",
-      "url": "https://mimargen.cl",
-      "applicationCategory": "BusinessApplication",
-      "operatingSystem": "Web",
-      "offers": {
-        "@type": "Offer",
-        "price": "29990",
-        "priceCurrency": "CLP",
-        "description": "Desde $29.990 CLP/mes"
-      },
-      "aggregateRating": {
-        "@type": "AggregateRating",
-        "ratingValue": "4.8",
-        "ratingCount": "127"
-      }
-    }
-    </script>
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:url" content="<?= htmlspecialchars($canonicalURL, ENT_QUOTES, 'UTF-8') ?>">
+    <meta name="twitter:title" content="<?= htmlspecialchars($metaTitle, ENT_QUOTES, 'UTF-8') ?>">
+    <meta name="twitter:description" content="<?= htmlspecialchars($metaDescription, ENT_QUOTES, 'UTF-8') ?>">
+    <meta name="twitter:image" content="<?= htmlspecialchars($ogImage, ENT_QUOTES, 'UTF-8') ?>">
+
+    <!-- JSON-LD Schema -->
+    <script type="application/ld+json"><?= $jsonLdString ?></script>
 
     <link rel="stylesheet" href="/assets/landing.css">
-    <link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin>
 </head>
-<body class="bg-cream-50 text-slate-900 antialiased">
+<body class="font-sans antialiased text-slate-800 bg-cream-50">
 
-<!-- ==================== HEADER ==================== -->
+<!-- Header -->
 <header class="fixed top-0 left-0 right-0 z-50 bg-cream-50/80 backdrop-blur-md border-b border-slate-200/60">
     <nav class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         <!-- Logo -->
@@ -146,7 +189,7 @@ $year = date('Y');
 </header>
 
 <main>
-<!-- ==================== HERO ==================== -->
+<!-- Hero -->
 <section class="relative pt-32 pb-20 sm:pt-40 sm:pb-28 overflow-hidden">
     <!-- Background decoration -->
     <div class="absolute inset-0 -z-10">
@@ -156,40 +199,92 @@ $year = date('Y');
 
     <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
-            <!-- Text + Lead Form -->
+            <!-- Text -->
             <div class="text-center lg:text-left">
                 <h1 class="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-slate-900 leading-tight tracking-tight">
-                    <?= htmlspecialchars($heroTitle) ?>
+                    Conoce cuánto ganas
+                    <span class="text-brand-600"> realmente</span> con cada producto
                 </h1>
                 <p class="mt-6 text-lg sm:text-xl text-slate-600 leading-relaxed max-w-xl mx-auto lg:mx-0">
-                    <?= htmlspecialchars($heroLead ?: 'Crea recetas con tus ingredientes, calcula el costo real de producción —incluyendo merma— y conoce tu margen de ganancia real. Todo en un solo lugar, sin hojas de cálculo que no te cierran.') ?>
+                    <?= htmlspecialchars($heroLead, ENT_QUOTES, 'UTF-8') ?>
                 </p>
+                <div class="mt-8 flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
+                    <a href="#precios" class="inline-flex items-center justify-center font-semibold rounded-lg transition-all duration-150 active:scale-[0.97] text-base px-6 py-3 bg-brand-600 text-white hover:bg-brand-700 shadow-md shadow-brand-600/20 hover:shadow-brand-600/30">
+                        Pruébalo gratis 14 días
+                    </a>
+                    <a href="#como-funciona" class="inline-flex items-center justify-center font-semibold rounded-lg transition-all duration-150 active:scale-[0.97] text-base px-6 py-3 bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 hover:border-slate-300">
+                        <svg class="w-5 h-5 mr-2 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Ver cómo funciona
+                    </a>
+                </div>
+                <p class="mt-4 text-sm text-slate-500">Sin tarjeta de crédito · 14 días gratis · Sin compromiso</p>
 
                 <!-- Lead capture form -->
                 <?php if ($formSuccess): ?>
-                    <div class="mt-8 p-4 rounded-xl bg-green-50 border border-green-200 text-green-800 text-sm">
-                        <p class="font-semibold">¡Gracias por tu interés!</p>
-                        <p>Te contactaremos pronto para activar tu prueba gratuita.</p>
+                    <div class="mt-6 bg-green-50 border border-green-200 rounded-xl p-4 text-center">
+                        <p class="text-green-700 font-semibold">¡Gracias! Te contactaremos pronto.</p>
                     </div>
-                <?php else: ?>
-                    <form method="POST" action="" class="mt-8 max-w-md mx-auto lg:mx-0">
-                        <input type="hidden" name="action" value="lead">
-                        <!-- Honeypot field — must stay hidden -->
-                        <input type="text" name="website" value="" style="position:absolute;left:-9999px;opacity:0;height:0;width:0" tabindex="-1" autocomplete="off">
-                        <div class="flex flex-col sm:flex-row gap-3">
-                            <input type="email" name="email" required placeholder="Tu correo electrónico"
-                                class="flex-1 px-4 py-3 rounded-lg border border-slate-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 outline-none transition text-sm">
-                            <button type="submit" class="px-6 py-3 rounded-lg bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 transition-colors shadow-md shadow-brand-600/20 whitespace-nowrap">
-                                Pruébalo gratis 14 días
-                            </button>
-                        </div>
-                        <?php if ($formError): ?>
-                            <p class="mt-2 text-sm text-red-600"><?= htmlspecialchars($formError) ?></p>
-                        <?php endif; ?>
-                    </form>
+                <?php elseif ($formError): ?>
+                    <div class="mt-6 bg-red-50 border border-red-400 rounded-xl p-4">
+                        <p class="text-red-400 font-semibold"><?= htmlspecialchars($formError, ENT_QUOTES, 'UTF-8') ?></p>
+                    </div>
                 <?php endif; ?>
 
-                <p class="mt-4 text-sm text-slate-500">Sin tarjeta de crédito · 14 días gratis · Sin compromiso</p>
+                <?php if (!$formSuccess): ?>
+                <form method="POST" action="#contacto" class="mt-8 bg-white rounded-xl shadow-lg shadow-brand-500/10 border border-slate-200 p-5 sm:p-8">
+                    <input type="hidden" name="action" value="lead">
+                    <!-- Honeypot — must stay hidden -->
+                    <input type="text" name="website" tabindex="-1" autocomplete="off" style="position:absolute;left:-9999px;opacity:0;height:0;width:0" aria-hidden="true">
+
+                    <div class="grid sm:grid-cols-2 gap-4">
+                        <div>
+                            <label for="lead-nombre" class="block text-sm font-medium text-slate-700 mb-1">Nombre</label>
+                            <input type="text" id="lead-nombre" name="nombre" required
+                                   value="<?= htmlspecialchars($formNombre ?? '', ENT_QUOTES, 'UTF-8') ?>"
+                                   class="w-full rounded-lg border border-slate-200 px-4 py-2.5 text-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500 outline-none transition"
+                                   placeholder="Tu nombre">
+                        </div>
+                        <div>
+                            <label for="lead-empresa" class="block text-sm font-medium text-slate-700 mb-1">Empresa</label>
+                            <input type="text" id="lead-empresa" name="empresa" required
+                                   value="<?= htmlspecialchars($formEmpresa ?? '', ENT_QUOTES, 'UTF-8') ?>"
+                                   class="w-full rounded-lg border border-slate-200 px-4 py-2.5 text-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500 outline-none transition"
+                                   placeholder="Nombre de tu empresa">
+                        </div>
+                    </div>
+
+                    <div class="mt-4">
+                        <label for="lead-email" class="block text-sm font-medium text-slate-700 mb-1">Correo electrónico</label>
+                        <input type="email" id="lead-email" name="email" required
+                               value="<?= htmlspecialchars($formEmail ?? '', ENT_QUOTES, 'UTF-8') ?>"
+                               class="w-full rounded-lg border border-slate-200 px-4 py-2.5 text-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500 outline-none transition"
+                               placeholder="tu@email.com">
+                    </div>
+
+                    <div class="mt-4">
+                        <label for="lead-telefono" class="block text-sm font-medium text-slate-700 mb-1">Teléfono <span class="text-slate-400">(opcional)</span></label>
+                        <input type="tel" id="lead-telefono" name="telefono"
+                               value="<?= htmlspecialchars($formTelefono ?? '', ENT_QUOTES, 'UTF-8') ?>"
+                               class="w-full rounded-lg border border-slate-200 px-4 py-2.5 text-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500 outline-none transition"
+                               placeholder="+56 9 XXXX XXXX">
+                    </div>
+
+                    <div class="mt-4">
+                        <label for="lead-mensaje" class="block text-sm font-medium text-slate-700 mb-1">Mensaje <span class="text-slate-400">(opcional)</span></label>
+                        <textarea id="lead-mensaje" name="mensaje" rows="3"
+                                  class="w-full rounded-lg border border-slate-200 px-4 py-2.5 text-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500 outline-none transition"
+                                  placeholder="¿En qué podemos ayudarte?"><?= htmlspecialchars($formMensaje ?? '', ENT_QUOTES, 'UTF-8') ?></textarea>
+                    </div>
+
+                    <button type="submit"
+                            class="mt-5 w-full inline-flex items-center justify-center font-semibold rounded-lg transition-all duration-150 active:scale-[0.97] text-base px-6 py-3 bg-brand-600 text-white hover:bg-brand-700 shadow-md shadow-brand-600/20 hover:shadow-brand-600/30">
+                        Pruébalo gratis 14 días
+                    </button>
+                </form>
+                <?php endif; ?>
             </div>
 
             <!-- Visual Mockup -->
@@ -242,7 +337,7 @@ $year = date('Y');
     </div>
 </section>
 
-<!-- ==================== PAIN POINTS ==================== -->
+<!-- Pain Points -->
 <section id="producto" class="py-16 sm:py-20 lg:py-24 bg-white">
     <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="text-center max-w-2xl mx-auto mb-12 sm:mb-16">
@@ -250,7 +345,7 @@ $year = date('Y');
             <p class="mt-4 text-lg text-slate-600">La mayoría de los emprendedores pierden plata sin saberlo. No por falta de esfuerzo, sino por falta de visibilidad.</p>
         </div>
         <div class="grid md:grid-cols-3 gap-6 lg:gap-8">
-            <!-- Pain 1 -->
+            <!-- Card 1 -->
             <div class="rounded-2xl p-6 bg-white border border-slate-200/80 shadow-lg shadow-slate-900/5 text-center hover:shadow-xl transition-shadow">
                 <div class="mx-auto w-14 h-14 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center mb-5">
                     <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232 1.232 3.229 0 4.461l-.671.671c-1.232 1.232-3.229 1.232-4.461 0L5 10.132" /></svg>
@@ -258,7 +353,7 @@ $year = date('Y');
                 <h3 class="text-lg font-bold text-slate-900 mb-2">Pones precios a ojo</h3>
                 <p class="text-slate-600 text-sm leading-relaxed">Sumas los ingredientes, le multiplicas por dos y esperas que alcance. Pero nunca sabes si realmente estás ganando o perdiendo plata.</p>
             </div>
-            <!-- Pain 2 -->
+            <!-- Card 2 -->
             <div class="rounded-2xl p-6 bg-white border border-slate-200/80 shadow-lg shadow-slate-900/5 text-center hover:shadow-xl transition-shadow">
                 <div class="mx-auto w-14 h-14 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center mb-5">
                     <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h7.5c.621 0 1.125-.504 1.125-1.125m-9.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-7.5A1.125 1.125 0 0112 18.375m9.75-12.75c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125m19.5 0v1.5c0 .621-.504 1.125-1.125 1.125M2.25 5.625v1.5c0 .621.504 1.125 1.125 1.125m0 0h17.25m-17.25 0h7.5c.621 0 1.125.504 1.125 1.125M3.375 8.25c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125m17.25-3.75h-7.5c-.621 0-1.125.504-1.125 1.125m8.625-1.125c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h7.5m-7.5 0c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125M12 10.875v-1.5m0 1.5c0 .621-.504 1.125-1.125 1.125M12 10.875c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125M10.875 12c-.621 0-1.125.504-1.125 1.125M12 12c.621 0 1.125.504 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125m13.5-7.5h-1.5" /></svg>
@@ -266,7 +361,7 @@ $year = date('Y');
                 <h3 class="text-lg font-bold text-slate-900 mb-2">Tu Excel ya no da para más</h3>
                 <p class="text-slate-600 text-sm leading-relaxed">Tienes diez hojas de cálculo, fórmulas que se rompen solas y cada vez que cambia un precio de insumo, tienes que actualizar todo a mano. Sacar cuentas te toma horas.</p>
             </div>
-            <!-- Pain 3 -->
+            <!-- Card 3 -->
             <div class="rounded-2xl p-6 bg-white border border-slate-200/80 shadow-lg shadow-slate-900/5 text-center hover:shadow-xl transition-shadow">
                 <div class="mx-auto w-14 h-14 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center mb-5">
                     <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" /></svg>
@@ -278,7 +373,7 @@ $year = date('Y');
     </div>
 </section>
 
-<!-- ==================== HOW IT WORKS ==================== -->
+<!-- How It Works -->
 <section id="como-funciona" class="py-16 sm:py-20 lg:py-24 bg-cream-50">
     <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="text-center max-w-2xl mx-auto mb-12 sm:mb-16">
@@ -319,7 +414,7 @@ $year = date('Y');
     </div>
 </section>
 
-<!-- ==================== FEATURES ==================== -->
+<!-- Features -->
 <section id="features" class="py-16 sm:py-20 lg:py-24 bg-white">
     <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="text-center max-w-2xl mx-auto mb-12 sm:mb-16">
@@ -427,7 +522,7 @@ $year = date('Y');
     </div>
 </section>
 
-<!-- ==================== WHO IT IS FOR ==================== -->
+<!-- Who It's For -->
 <section id="para-quien" class="py-16 sm:py-20 lg:py-24 bg-cream-50">
     <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="text-center max-w-2xl mx-auto mb-12 sm:mb-16">
@@ -475,7 +570,7 @@ $year = date('Y');
     </div>
 </section>
 
-<!-- ==================== CALCULATOR ==================== -->
+<!-- Calculator -->
 <section id="calculadora" class="py-16 sm:py-20 lg:py-24 bg-cream-50">
     <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="text-center max-w-2xl mx-auto mb-10 sm:mb-14">
@@ -584,7 +679,7 @@ $year = date('Y');
     </div>
 </section>
 
-<!-- ==================== TESTIMONIALS ==================== -->
+<!-- Testimonials -->
 <section id="testimonios" class="py-16 sm:py-20 lg:py-24 bg-white">
     <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="text-center max-w-2xl mx-auto mb-12 sm:mb-16">
@@ -592,7 +687,7 @@ $year = date('Y');
         </div>
         <div class="grid md:grid-cols-3 gap-6 lg:gap-8">
             <!-- Testimonial 1 -->
-            <div class="rounded-2xl p-6 bg-white border border-slate-200/80 shadow-lg shadow-slate-900/5 flex flex-col">
+            <div class="rounded-2xl p-6 bg-white border border-slate-200/80 shadow-lg shadow-slate-900/5 flex flex-col hover:shadow-xl transition-shadow">
                 <div class="flex-1">
                     <div class="flex items-center gap-1 mb-4">
                         <span class="text-yellow-400 text-sm">★</span>
@@ -612,7 +707,7 @@ $year = date('Y');
                 </div>
             </div>
             <!-- Testimonial 2 -->
-            <div class="rounded-2xl p-6 bg-white border border-slate-200/80 shadow-lg shadow-slate-900/5 flex flex-col">
+            <div class="rounded-2xl p-6 bg-white border border-slate-200/80 shadow-lg shadow-slate-900/5 flex flex-col hover:shadow-xl transition-shadow">
                 <div class="flex-1">
                     <div class="flex items-center gap-1 mb-4">
                         <span class="text-yellow-400 text-sm">★</span>
@@ -632,7 +727,7 @@ $year = date('Y');
                 </div>
             </div>
             <!-- Testimonial 3 -->
-            <div class="rounded-2xl p-6 bg-white border border-slate-200/80 shadow-lg shadow-slate-900/5 flex flex-col">
+            <div class="rounded-2xl p-6 bg-white border border-slate-200/80 shadow-lg shadow-slate-900/5 flex flex-col hover:shadow-xl transition-shadow">
                 <div class="flex-1">
                     <div class="flex items-center gap-1 mb-4">
                         <span class="text-yellow-400 text-sm">★</span>
@@ -655,7 +750,7 @@ $year = date('Y');
     </div>
 </section>
 
-<!-- ==================== PRICING ==================== -->
+<!-- Pricing -->
 <section id="precios" class="py-16 sm:py-20 lg:py-24 bg-cream-50">
     <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="text-center max-w-2xl mx-auto mb-12 sm:mb-16">
@@ -663,8 +758,8 @@ $year = date('Y');
             <p class="mt-4 text-lg text-slate-600">Todos los planes incluyen 14 días gratis. Sin tarjeta de crédito. Sin compromiso.</p>
         </div>
         <div class="grid md:grid-cols-3 gap-6 lg:gap-8 max-w-5xl mx-auto">
-            <!-- Plan: Emprendedor -->
-            <div class="rounded-2xl p-6 bg-white border border-slate-200/80 hover:shadow-lg transition-shadow">
+            <!-- Plan 1: Emprendedor -->
+            <div class="rounded-2xl p-6 bg-white border border-slate-200/80 hover:shadow-lg transition-shadow relative">
                 <div class="text-center mb-6">
                     <h3 class="text-lg font-bold text-slate-900">Emprendedor</h3>
                     <div class="mt-3">
@@ -695,10 +790,10 @@ $year = date('Y');
                         Soporte por email
                     </li>
                 </ul>
-                <a href="#precios" class="inline-flex items-center justify-center w-full px-5 py-2.5 rounded-lg bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 hover:border-slate-300 font-semibold text-sm transition-all duration-150 active:scale-[0.97]">Empezar gratis</a>
+                <a href="#precios" class="w-full inline-flex items-center justify-center font-semibold rounded-lg transition-all duration-150 active:scale-[0.97] text-sm px-5 py-2.5 bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 hover:border-slate-300">Empezar gratis</a>
             </div>
-            <!-- Plan: Productor (popular) -->
-            <div class="rounded-2xl p-6 bg-white border border-slate-200/80 shadow-lg shadow-slate-900/5 relative ring-2 ring-brand-500 shadow-xl shadow-brand-500/10">
+            <!-- Plan 2: Productor (Popular) -->
+            <div class="rounded-2xl p-6 bg-white border border-slate-200/80 shadow-xl shadow-slate-900/5 relative ring-2 ring-brand-500 shadow-xl shadow-brand-500/10">
                 <div class="absolute -top-3 left-1/2 -translate-x-1/2">
                     <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-brand-600 text-white shadow-md">Más popular</span>
                 </div>
@@ -740,10 +835,10 @@ $year = date('Y');
                         Soporte prioritario
                     </li>
                 </ul>
-                <a href="#precios" class="inline-flex items-center justify-center w-full px-6 py-3 rounded-lg bg-brand-600 text-white font-semibold text-base hover:bg-brand-700 shadow-md shadow-brand-600/20 hover:shadow-brand-600/30 transition-all duration-150 active:scale-[0.97]">Empezar gratis</a>
+                <a href="#precios" class="w-full inline-flex items-center justify-center font-semibold rounded-lg transition-all duration-150 active:scale-[0.97] text-sm px-5 py-2.5 bg-brand-600 text-white hover:bg-brand-700 shadow-md shadow-brand-600/20 hover:shadow-brand-600/30">Empezar gratis</a>
             </div>
-            <!-- Plan: Empresa -->
-            <div class="rounded-2xl p-6 bg-white border border-slate-200/80 hover:shadow-lg transition-shadow">
+            <!-- Plan 3: Empresa -->
+            <div class="rounded-2xl p-6 bg-white border border-slate-200/80 hover:shadow-lg transition-shadow relative">
                 <div class="text-center mb-6">
                     <h3 class="text-lg font-bold text-slate-900">Empresa</h3>
                     <div class="mt-3">
@@ -782,14 +877,14 @@ $year = date('Y');
                         Onboarding personalizado
                     </li>
                 </ul>
-                <a href="#precios" class="inline-flex items-center justify-center w-full px-5 py-2.5 rounded-lg bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 hover:border-slate-300 font-semibold text-sm transition-all duration-150 active:scale-[0.97]">Hablar con ventas</a>
+                <a href="#precios" class="w-full inline-flex items-center justify-center font-semibold rounded-lg transition-all duration-150 active:scale-[0.97] text-sm px-5 py-2.5 bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 hover:border-slate-300">Hablar con ventas</a>
             </div>
         </div>
         <p class="text-center text-xs text-slate-400 mt-8">Precios en pesos chilenos, sujetos a variación UF.</p>
     </div>
 </section>
 
-<!-- ==================== FAQ ==================== -->
+<!-- FAQ -->
 <section id="faq" class="py-16 sm:py-20 lg:py-24 bg-white">
     <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="text-center max-w-2xl mx-auto mb-12 sm:mb-16">
@@ -920,7 +1015,7 @@ $year = date('Y');
     </div>
 </section>
 
-<!-- ==================== FINAL CTA ==================== -->
+<!-- Final CTA -->
 <section class="py-16 sm:py-20 lg:py-24 bg-slate-900 text-white">
     <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="text-center max-w-2xl mx-auto">
@@ -931,10 +1026,10 @@ $year = date('Y');
                 Cada día que pasas sin conocer tu margen real es un día que puedes estar perdiendo plata. Prueba MiMargen gratis durante 14 días y conoce tu ganancia de verdad.
             </p>
             <div class="mt-8 flex flex-col sm:flex-row gap-4 justify-center">
-                <a href="#precios" class="inline-flex items-center justify-center px-6 py-3 rounded-lg bg-brand-500 text-white text-base font-semibold hover:bg-brand-400 shadow-md shadow-brand-500/30 transition-all duration-150 active:scale-[0.97]">
+                <a href="#precios" class="inline-flex items-center justify-center font-semibold rounded-lg transition-all duration-150 active:scale-[0.97] text-base px-6 py-3 bg-brand-500 text-white hover:bg-brand-400 shadow-md shadow-brand-500/30">
                     Empezar gratis — sin tarjeta
                 </a>
-                <a href="https://wa.me/<?= htmlspecialchars($contactWhatsApp) ?>" class="inline-flex items-center justify-center px-5 py-2.5 rounded-lg border border-slate-600 text-white text-sm font-semibold hover:bg-slate-800 transition-colors">
+                <a href="https://wa.me/<?= htmlspecialchars($contactWhatsApp, ENT_QUOTES, 'UTF-8') ?>" class="inline-flex items-center justify-center px-5 py-2.5 rounded-lg border border-slate-600 text-white text-sm font-semibold hover:bg-slate-800 transition-colors">
                     <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
                     Hablar por WhatsApp
                 </a>
@@ -944,7 +1039,7 @@ $year = date('Y');
 </section>
 </main>
 
-<!-- ==================== FOOTER ==================== -->
+<!-- Footer -->
 <footer class="bg-slate-900 text-slate-400">
     <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div class="grid grid-cols-1 md:grid-cols-4 gap-8">
@@ -962,10 +1057,10 @@ $year = date('Y');
                     Conoce el costo real de cada producto que fabricas. Calcula tu margen de ganancia de verdad.
                 </p>
                 <div class="flex items-center gap-4 mt-6">
-                    <a href="<?= htmlspecialchars($socialInstagram) ?>" class="text-slate-400 hover:text-brand-400 transition-colors" aria-label="Instagram">
+                    <a href="<?= htmlspecialchars($socialInstagram, ENT_QUOTES, 'UTF-8') ?>" class="text-slate-400 hover:text-brand-400 transition-colors" aria-label="Instagram">
                         <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
                     </a>
-                    <a href="<?= htmlspecialchars($socialLinkedin) ?>" class="text-slate-400 hover:text-brand-400 transition-colors" aria-label="LinkedIn">
+                    <a href="<?= htmlspecialchars($socialLinkedin, ENT_QUOTES, 'UTF-8') ?>" class="text-slate-400 hover:text-brand-400 transition-colors" aria-label="LinkedIn">
                         <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
                     </a>
                     <a href="https://youtube.com/@mimargen" class="text-slate-400 hover:text-brand-400 transition-colors" aria-label="YouTube">
@@ -981,7 +1076,7 @@ $year = date('Y');
                     <li><a href="#producto" class="text-sm hover:text-brand-400 transition-colors">Producto</a></li>
                     <li><a href="#precios" class="text-sm hover:text-brand-400 transition-colors">Precios</a></li>
                     <li><a href="#calculadora" class="text-sm hover:text-brand-400 transition-colors">Calculadora gratuita</a></li>
-                    <li><a href="mailto:<?= htmlspecialchars($contactEmail) ?>" class="text-sm hover:text-brand-400 transition-colors">Soporte</a></li>
+                    <li><a href="mailto:<?= htmlspecialchars($contactEmail, ENT_QUOTES, 'UTF-8') ?>" class="text-sm hover:text-brand-400 transition-colors">Soporte</a></li>
                 </ul>
             </div>
 
@@ -995,41 +1090,44 @@ $year = date('Y');
                 </ul>
                 <div class="mt-6">
                     <p class="text-sm">
-                        <a href="mailto:<?= htmlspecialchars($contactEmail) ?>" class="text-brand-400 hover:text-brand-300 transition-colors"><?= htmlspecialchars($contactEmail) ?></a>
+                        <a href="mailto:<?= htmlspecialchars($contactEmail, ENT_QUOTES, 'UTF-8') ?>" class="text-brand-400 hover:text-brand-300 transition-colors"><?= htmlspecialchars($contactEmail, ENT_QUOTES, 'UTF-8') ?></a>
                     </p>
-                    <?php if ($contactWhatsApp): ?>
+                    <?php if (!empty($contactPhone)): ?>
                     <p class="text-sm mt-1">
-                        <a href="https://wa.me/<?= htmlspecialchars($contactWhatsApp) ?>" class="text-brand-400 hover:text-brand-300 transition-colors">WhatsApp</a>
+                        <a href="tel:<?= htmlspecialchars($contactPhone, ENT_QUOTES, 'UTF-8') ?>" class="text-brand-400 hover:text-brand-300 transition-colors"><?= htmlspecialchars($contactPhone, ENT_QUOTES, 'UTF-8') ?></a>
                     </p>
                     <?php endif; ?>
+                    <p class="text-sm mt-1">
+                        <a href="https://wa.me/<?= htmlspecialchars($contactWhatsApp, ENT_QUOTES, 'UTF-8') ?>" class="text-brand-400 hover:text-brand-300 transition-colors">WhatsApp</a>
+                    </p>
                 </div>
             </div>
         </div>
 
         <div class="border-t border-slate-800 mt-12 pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
-            <p class="text-xs text-slate-500">&copy; <?= $year ?> MiMargen. Todos los derechos reservados. Hecho en Chile.</p>
+            <p class="text-xs text-slate-500">&copy; <?= date('Y') ?> MiMargen. Todos los derechos reservados. Hecho en Chile.</p>
         </div>
     </div>
 </footer>
 
-<!-- ==================== SCRIPTS ==================== -->
+<!-- Mobile menu toggle -->
 <script>
-    // Mobile menu toggle
-    (function() {
-        var btn = document.getElementById('mobile-menu-btn');
-        var menu = document.getElementById('mobile-menu');
-        if (btn && menu) {
-            btn.addEventListener('click', function() {
-                menu.classList.toggle('hidden');
+(function() {
+    var btn = document.getElementById('mobile-menu-btn');
+    var menu = document.getElementById('mobile-menu');
+    if (btn && menu) {
+        btn.addEventListener('click', function() {
+            menu.classList.toggle('hidden');
+        });
+        menu.querySelectorAll('a').forEach(function(link) {
+            link.addEventListener('click', function() {
+                menu.classList.add('hidden');
             });
-            menu.querySelectorAll('a').forEach(function(link) {
-                link.addEventListener('click', function() {
-                    menu.classList.add('hidden');
-                });
-            });
-        }
-    })();
+        });
+    }
+})();
 </script>
+
 <script src="/assets/calculator.js" defer></script>
 
 </body>

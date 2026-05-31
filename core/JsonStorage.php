@@ -1,66 +1,120 @@
 <?php
 /**
- * MiMargen JSON Storage
+ * JSON Storage
  *
  * Simple JSON file storage for leads and other platform data.
+ * Matches OtterErp JsonStorage contract.
+ *
+ * Usage:
+ *   $enc     = new Encryption(APP_SECRET);
+ *   $storage = new JsonStorage($platformDir, $enc);
+ *   $storage->insert('leads', [...]);
  */
 class JsonStorage
 {
+    private string $dir;
+    private ?Encryption $enc;
+
     /**
-     * Save a record to a JSON file in the data directory.
+     * @param string $dir Directory to store JSON files
+     * @param Encryption|null $enc Optional encryption wrapper
+     */
+    public function __construct(string $dir, ?Encryption $enc = null)
+    {
+        $this->dir = rtrim($dir, '/');
+        $this->enc = $enc;
+        if (!is_dir($this->dir)) {
+            @mkdir($this->dir, 0750, true);
+        }
+    }
+
+    /**
+     * Insert a record into a collection.
      *
-     * @param string $collection e.g. 'leads'
-     * @param array<string, mixed> $record
+     * @param string $collection Collection name (e.g. 'leads')
+     * @param array<string, mixed> $data Record data
      * @return bool
      */
-    public static function save(string $collection, array $record): bool
+    public function insert(string $collection, array $data): bool
     {
-        $dir = DATA_DIR . '/' . $collection;
-        if (!is_dir($dir)) {
-            mkdir($dir, 0750, true);
-        }
+        $file = $this->collectionFile($collection);
 
-        $id = $record['id'] ?? bin2hex(random_bytes(8));
-        $file = $dir . '/' . $id . '.json';
+        $records = $this->readCollection($collection);
+        $records[] = $data;
 
-        $json = json_encode($record, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        if ($json === false) {
-            return false;
-        }
-
-        return file_put_contents($file, $json, LOCK_EX) !== false;
+        return $this->writeCollection($file, $records);
     }
 
     /**
      * Load all records from a collection.
      *
-     * @param string $collection e.g. 'leads'
+     * @param string $collection Collection name
      * @return array<int, array<string, mixed>>
      */
-    public static function load(string $collection): array
+    public function all(string $collection): array
     {
-        $dir = DATA_DIR . '/' . $collection;
-        if (!is_dir($dir)) {
+        return $this->readCollection($collection);
+    }
+
+    /**
+     * Get the file path for a collection.
+     */
+    private function collectionFile(string $collection): string
+    {
+        return $this->dir . '/' . $collection . '.dat';
+    }
+
+    /**
+     * Read and decode a collection file.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function readCollection(string $collection): array
+    {
+        $file = $this->collectionFile($collection);
+        if (!is_file($file)) {
             return [];
         }
 
-        $records = [];
-        $files = glob($dir . '/*.json');
-        if ($files === false) {
+        $content = file_get_contents($file);
+        if ($content === false || $content === '') {
             return [];
         }
 
-        foreach ($files as $file) {
-            $json = file_get_contents($file);
-            if ($json === false) {
-                continue;
-            }
-            $decoded = json_decode($json, true);
-            if (is_array($decoded)) {
-                $records[] = $decoded;
+        // Decrypt if encryption is available
+        if ($this->enc !== null) {
+            try {
+                $content = $this->enc->decrypt($content);
+            } catch (Throwable $e) {
+                return [];
             }
         }
 
-        return $records;
+        $decoded = json_decode($content, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    /**
+     * Encode and write a collection file.
+     *
+     * @param array<int, array<string, mixed>> $records
+     */
+    private function writeCollection(string $file, array $records): bool
+    {
+        $json = json_encode($records, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if ($json === false) {
+            return false;
+        }
+
+        // Encrypt if encryption is available
+        if ($this->enc !== null) {
+            try {
+                $json = $this->enc->encrypt($json);
+            } catch (Throwable $e) {
+                return false;
+            }
+        }
+
+        return file_put_contents($file, $json, LOCK_EX) !== false;
     }
 }
