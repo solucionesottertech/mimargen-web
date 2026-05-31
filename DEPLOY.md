@@ -1,5 +1,48 @@
 # MiMargen Landing — Deployment Guide
 
+## Integration Contract (OtterErp Backend)
+
+**IMPORTANT**: `landing.php` is NOT called by direct URL. It is dispatched by `core/bootstrap.php`
+when the resolved host matches `BASE_DOMAIN` (apex domain) and the context is `UNKNOWN`.
+
+### PlatformSettings::load() Contract
+
+```php
+$rootDataDir = dirname(__DIR__) . '/data';
+$settings    = PlatformSettings::load($rootDataDir);
+```
+
+| Key | Type | Default |
+|-----|------|---------|
+| `contact_email` | string\|null | null |
+| `contact_phone` | string | `'+56 9 0000 0000'` |
+| `contact_whatsapp` | string | `'56900000000'` (digits only, wa.me format) |
+| `contact_city` | string | `'Santiago, Chile'` |
+| `hero_title` | string | `'El sistema que ordena tu empresa de punta a punta.'` |
+| `hero_lead` | string | (long paragraph) |
+| `social_linkedin` | string\|null | null |
+| `social_instagram` | string\|null | null |
+
+**Never throws** — returns full defaults on corrupt/missing storage.
+
+### Lead Form Contract
+
+- **Method**: POST to same URL (`action="#"`)
+- **Discriminator**: `<input type="hidden" name="action" value="lead">`
+- **Honeypot**: `<input name="website">` — must be empty, silently discarded if filled
+- **Required fields**: `nombre` (mb_strlen >= 2), `empresa` (mb_strlen >= 2), `email` (FILTER_VALIDATE_EMAIL)
+- **Optional fields**: `telefono`, `mensaje`
+- **No CSRF token** — protection is honeypot + action discriminator only
+
+### Logo Methods
+
+Logo is NOT in `load()`. Use separate methods:
+```php
+$brandLogo     = PlatformSettings::brandLogoDataUrl($rootDataDir); // data URL for inline
+$logoInfo      = PlatformSettings::logoInfo($rootDataDir);         // ['mime' => ..., 'size' => ...]
+$serveUrl      = PlatformSettings::brandLogoServeUrl($rootDataDir); // '/api/logo'
+```
+
 ## Server Requirements
 
 - **PHP**: 7.4+ (with `json`, `mbstring`, `openssl` extensions)
