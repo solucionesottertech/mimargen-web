@@ -59,8 +59,8 @@
   function updateCounter() {
     const usage = resetIfNeeded(getUsage());
     const remaining = Math.max(0, LIMITS.daily - usage.daily);
-    const el = document.getElementById('calc-usage-counter');
-    if (el) el.textContent = String(remaining);
+    const countEl = document.getElementById('calc-remaining-count');
+    if (countEl) countEl.textContent = String(remaining);
     const notice = document.getElementById('calc-rate-limit-notice');
     if (remaining <= 0) {
       notice?.classList.remove('hidden');

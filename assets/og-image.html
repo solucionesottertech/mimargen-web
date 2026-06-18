@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1200">
+<title>MiMargen OG Image</title>
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    width: 1200px;
+    height: 630px;
+    overflow: hidden;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background: #FFFFFF;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  .canvas {
+    width: 1200px;
+    height: 630px;
+    display: flex;
+    position: relative;
+    overflow: hidden;
+    background: linear-gradient(135deg, #FFFFFF 0%, #F0FDF4 40%, #ECFDF5 100%);
+  }
+
+  /* Subtle background grid */
+  .canvas::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: radial-gradient(circle, #10B981 0.5px, transparent 0.5px);
+    background-size: 32px 32px;
+    opacity: 0.06;
+    pointer-events: none;
+  }
+
+  /* Soft radial glow */
+  .canvas::after {
+    content: '';
+    position: absolute;
+    width: 500px;
+    height: 500px;
+    right: -100px;
+    top: -150px;
+    background: radial-gradient(circle, rgba(16, 185, 129, 0.08) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  /* LEFT SIDE - 60% */
+  .left {
+    width: 720px;
+    height: 630px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 60px 56px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .logo-mark {
+    width: 64px;
+    height: 64px;
+    background: linear-gradient(135deg, #10B981 0%, #065F46 100%);
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 28px;
+    box-shadow: 0 8px 24px rgba(6, 95, 70, 0.15);
+  }
+
+  .logo-mark span {
+    font-size: 28px;
+    font-weight: 800;
+    color: #FFFFFF;
+    letter-spacing: -1px;
+  }
+
+  .product-name {
+    font-size: 56px;
+    font-weight: 800;
+    color: #064E3B;
+    letter-spacing: -2px;
+    line-height: 1.05;
+    margin-bottom: 16px;
+  }
+
+  .product-name .accent {
+    color: #10B981;
+  }
+
+  .tagline {
+    font-size: 22px;
+    font-weight: 400;
+    color: #475569;
+    line-height: 1.45;
+    max-width: 520px;
+    margin-bottom: 32px;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: #F0FDF4;
+    border: 1px solid #BBF7D0;
+    border-radius: 100px;
+    padding: 10px 20px;
+    width: fit-content;
+  }
+
+  .badge-dot {
+    width: 8px;
+    height: 8px;
+    background: #10B981;
+    border-radius: 50%;
+  }
+
+  .badge-text {
+    font-size: 15px;
+    font-weight: 600;
+    color: #065F46;
+    letter-spacing: -0.2px;
+  }
+
+  /* Divider line */
+  .divider {
+    position: absolute;
+    left: 720px;
+    top: 60px;
+    bottom: 60px;
+    width: 1px;
+    background: linear-gradient(to bottom, transparent, #D1FAE5, transparent);
+    z-index: 2;
+  }
+
+  /* RIGHT SIDE - 40% */
+  .right {
+    width: 480px;
+    height: 630px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 48px 40px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .dashboard-card {
+    width: 400px;
+    background: #FFFFFF;
+    border-radius: 20px;
+    box-shadow: 0 4px 6px rgba(6, 95, 70, 0.04), 0 12px 32px rgba(6, 95, 70, 0.08);
+    border: 1px solid #F0FDF4;
+    overflow: hidden;
+  }
+
+  .card-header {
+    padding: 20px 24px 16px;
+    border-bottom: 1px solid #F1F5F9;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .card-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #1E293B;
+    letter-spacing: -0.3px;
+  }
+
+  .card-badge {
+    background: #F0FDF4;
+    color: #059669;
+    font-size: 13px;
+    font-weight: 700;
+    padding: 5px 12px;
+    border-radius: 100px;
+    border: 1px solid #BBF7D0;
+  }
+
+  .card-body {
+    padding: 20px 24px 24px;
+  }
+
+  .recipe-name {
+    font-size: 18px;
+    font-weight: 700;
+    color: #0F172A;
+    letter-spacing: -0.5px;
+    margin-bottom: 16px;
+  }
+
+  .cost-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+  }
+
+  .cost-label {
+    font-size: 14px;
+    color: #64748B;
+    font-weight: 400;
+  }
+
+  .cost-value {
+    font-size: 14px;
+    color: #334155;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .cost-divider {
+    height: 1px;
+    background: #F1F5F9;
+    margin: 8px 0;
+  }
+
+  .cost-total {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 0 8px;
+  }
+
+  .cost-total-label {
+    font-size: 15px;
+    font-weight: 700;
+    color: #0F172A;
+  }
+
+  .cost-total-value {
+    font-size: 18px;
+    font-weight: 800;
+    color: #0F172A;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .margin-bar {
+    margin-top: 16px;
+    background: linear-gradient(135deg, #F0FDF4 0%, #ECFDF5 100%);
+    border: 1px solid #BBF7D0;
+    border-radius: 12px;
+    padding: 14px 18px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .margin-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: #065F46;
+  }
+
+  .margin-value {
+    font-size: 22px;
+    font-weight: 800;
+    color: #059669;
+    letter-spacing: -0.5px;
+  }
+
+  /* Progress bar */
+  .progress-track {
+    margin-top: 16px;
+    height: 6px;
+    background: #F1F5F9;
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    width: 47%;
+    background: linear-gradient(90deg, #10B981, #059669);
+    border-radius: 3px;
+  }
+</style>
+</head>
+<body>
+  <div class="canvas">
+    <!-- LEFT SIDE -->
+    <div class="left">
+      <div class="logo-mark">
+        <span>MM</span>
+      </div>
+      <div class="product-name">
+        Mi <span class="accent">Margen</span>
+      </div>
+      <div class="tagline">
+        Conoce cuánto ganas realmente con cada producto
+      </div>
+      <div class="badge">
+        <div class="badge-dot"></div>
+        <div class="badge-text">Costeo por receta para emprendedores</div>
+      </div>
+    </div>
+
+    <!-- DIVIDER -->
+    <div class="divider"></div>
+
+    <!-- RIGHT SIDE -->
+    <div class="right">
+      <div class="dashboard-card">
+        <div class="card-header">
+          <div class="card-title">Costeo de receta</div>
+          <div class="card-badge">+47% margen</div>
+        </div>
+        <div class="card-body">
+          <div class="recipe-name">Pan de masa madre</div>
+
+          <div class="cost-row">
+            <span class="cost-label">Materiales</span>
+            <span class="cost-value">$1.200</span>
+          </div>
+          <div class="cost-row">
+            <span class="cost-label">Mano de obra</span>
+            <span class="cost-value">$800</span>
+          </div>
+          <div class="cost-row">
+            <span class="cost-label">Merma (8%)</span>
+            <span class="cost-value">$150</span>
+          </div>
+
+          <div class="cost-divider"></div>
+
+          <div class="cost-total">
+            <span class="cost-total-label">Costo total</span>
+            <span class="cost-total-value">$2.150</span>
+          </div>
+
+          <div class="cost-row">
+            <span class="cost-label">Precio de venta</span>
+            <span class="cost-value" style="color: #059669;">$3.500</span>
+          </div>
+
+          <div class="progress-track">
+            <div class="progress-fill"></div>
+          </div>
+
+          <div class="margin-bar">
+            <span class="margin-label">Ganancia por unidad</span>
+            <span class="margin-value">$1.350</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

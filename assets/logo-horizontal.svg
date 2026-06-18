@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 120" width="360" height="120">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@600&display=swap');
+    </style>
+  </defs>
+  
+  <!-- White background -->
+  <rect width="360" height="120" fill="white"/>
+  
+  <!-- Icon Group (scaled down to fit left side) -->
+  <g transform="translate(10, 10) scale(0.5)">
+    <!-- Pie Chart Background -->
+    <g transform="translate(100, 100)">
+      <!-- Three quarters of pie chart (forest green) -->
+      <path d="M 0,0 L -55,0 A 55,55 0 1,1 0,55 Z" fill="#065F46"/>
+      <path d="M 0,0 L 0,-55 A 55,55 0 0,0 -55,0 Z" fill="#065F46"/>
+      <path d="M 0,0 L 0,55 A 55,55 0 0,0 55,0 Z" fill="#065F46"/>
+      
+      <!-- Pulled-out quarter slice (bright green) -->
+      <path d="M 7,7 L 7,-48 A 55,55 0 0,1 62,7 Z" fill="#34D399" transform="translate(-7, -7)"/>
+    </g>
+    
+    <!-- First M Arrow -->
+    <path d="M 60,140 L 75,75 L 95,105 L 115,70 L 130,120" 
+          stroke="#10B981" 
+          stroke-width="14" 
+          stroke-linecap="round" 
+          stroke-linejoin="round"
+          fill="none"/>
+    <polygon points="115,70 108,85 122,85" fill="#10B981"/>
+    
+    <!-- Second M Arrow -->
+    <path d="M 70,130 L 85,65 L 105,95 L 125,60 L 140,110" 
+          stroke="#10B981" 
+          stroke-width="14" 
+          stroke-linecap="round" 
+          stroke-linejoin="round"
+          fill="none"/>
+    <polygon points="125,60 118,75 132,75" fill="#10B981"/>
+  </g>
+  
+  <!-- Wordmark "Mi Margen" (right side) -->
+  <text x="130" y="75" 
+        font-family="'Inter', system-ui, sans-serif" 
+        font-size="42" 
+        font-weight="600" 
+        fill="#065F46"
+        letter-spacing="-0.02em">Mi Margen</text>
+</svg>
