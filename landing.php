@@ -221,6 +221,7 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
             .reveal { opacity: 1; transform: none; filter: none; transition: none; }
             .bezel-card:hover { transform: none; }
             .btn-premium:active { transform: none; }
+            .hl-underline::after { animation: none; transform: scaleX(1); }
             html { scroll-behavior: auto; }
         }
 
@@ -543,6 +544,97 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
         .pain-card-minimal .icon-minimal-wrap {
             margin-bottom: 1rem;
         }
+
+        /* ═══════════════════════════════════════════════════════
+           AESTHETIC REFINEMENTS — depth, accents, micro-interactions
+           ═══════════════════════════════════════════════════════ */
+
+        /* ── Hero: animated accent underline on highlighted word ── */
+        .hl-underline { position: relative; white-space: nowrap; }
+        .hl-underline::after {
+            content: '';
+            position: absolute;
+            left: 0; right: 0; bottom: -0.06em;
+            height: 0.12em;
+            border-radius: 999px;
+            background: linear-gradient(90deg, #34d399, #10b981 55%, #059669);
+            transform: scaleX(0);
+            transform-origin: left center;
+            animation: hlGrow 850ms var(--ease-premium) 300ms forwards;
+        }
+        @keyframes hlGrow { to { transform: scaleX(1); } }
+
+        /* ── Hero: faint blueprint grid behind content ── */
+        .hero-grid {
+            background-image:
+                linear-gradient(rgba(15,23,42,0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(15,23,42,0.03) 1px, transparent 1px);
+            background-size: 44px 44px;
+            -webkit-mask-image: radial-gradient(ellipse 75% 65% at 35% 12%, #000, transparent 72%);
+            mask-image: radial-gradient(ellipse 75% 65% at 35% 12%, #000, transparent 72%);
+        }
+
+        /* ── Feature icons: soft brand chip + hover pop ── */
+        #features .bezel-card .icon-minimal {
+            width: 2.75rem; height: 2.75rem; padding: 0.65rem;
+            box-sizing: border-box;
+            border-radius: 0.85rem;
+            background: linear-gradient(135deg, rgba(16,185,129,0.12), rgba(16,185,129,0.05));
+            border: 1px solid rgba(16,185,129,0.16);
+            color: #059669;
+            transition: background 350ms var(--ease-premium),
+                        color 350ms var(--ease-premium),
+                        transform 350ms var(--ease-premium),
+                        border-color 350ms var(--ease-premium);
+        }
+        #features .bezel-card:hover .icon-minimal {
+            background: linear-gradient(135deg, #10b981, #059669);
+            border-color: transparent;
+            color: #fff;
+            transform: translateY(-2px) rotate(-3deg);
+        }
+
+        /* ── Stronger card lift on hover ── */
+        .bezel-card:hover {
+            box-shadow: 0 16px 40px rgba(16,185,129,0.12), 0 4px 10px rgba(16,185,129,0.05);
+        }
+
+        /* ── Comparison table: highlight the MiMargen column ── */
+        .comparison-table td:nth-child(2),
+        .comparison-table th:nth-child(2) {
+            background: rgba(16,185,129,0.06);
+            box-shadow: inset 1px 0 0 rgba(16,185,129,0.14), inset -1px 0 0 rgba(16,185,129,0.14);
+        }
+        .comparison-table thead th:nth-child(2) {
+            background: rgba(16,185,129,0.14);
+            box-shadow: inset 1px 0 0 rgba(16,185,129,0.18), inset -1px 0 0 rgba(16,185,129,0.18);
+        }
+
+        /* ── Industry icons: lift + colorize on hover ── */
+        .industry-icon-item { transition: transform 300ms var(--ease-premium); }
+        .industry-icon-item svg,
+        .industry-icon-item span { transition: color 300ms var(--ease-premium); }
+        .industry-icon-item:hover { transform: translateY(-4px); }
+        .industry-icon-item:hover svg,
+        .industry-icon-item:hover span { color: #059669; }
+
+        /* ── Dark CTA: green top-glow + subtle dot grid for depth ── */
+        .section-dark-cta {
+            position: relative;
+            background:
+                radial-gradient(ellipse 55% 45% at 50% 0%, rgba(16,185,129,0.14), transparent 70%),
+                linear-gradient(160deg, #0f172a 0%, #1a2636 42%, #0f172a 100%);
+        }
+        .section-dark-cta::before {
+            content: '';
+            position: absolute; inset: 0;
+            background-image: radial-gradient(rgba(255,255,255,0.05) 1px, transparent 1px);
+            background-size: 24px 24px;
+            -webkit-mask-image: radial-gradient(ellipse 70% 65% at 50% 35%, #000, transparent 78%);
+            mask-image: radial-gradient(ellipse 70% 65% at 50% 35%, #000, transparent 78%);
+            pointer-events: none;
+        }
+        .section-dark-cta > * { position: relative; z-index: 1; }
     </style>
 </head>
 <body class="font-sans antialiased text-slate-800 bg-white">
@@ -591,6 +683,8 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
     <!-- Subtle background decoration -->
     <div class="absolute inset-0 -z-10">
         <div class="absolute top-0 right-0 w-[50rem] h-[50rem] bg-brand-100/20 rounded-full blur-[100px] -translate-y-1/3 translate-x-1/4"></div>
+        <div class="absolute bottom-0 left-0 w-[34rem] h-[34rem] bg-brand-200/15 rounded-full blur-[110px] translate-y-1/3 -translate-x-1/4"></div>
+        <div class="hero-grid absolute inset-0"></div>
     </div>
 
     <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -598,7 +692,7 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
             <!-- Text (50%) -->
             <div class="text-center lg:text-left">
                 <h1 class="text-slate-900">
-                    Conoce cuánto ganas <span class="text-brand-600">realmente</span> con cada producto
+                    Conoce cuánto ganas <span class="text-brand-600 hl-underline">realmente</span> con cada producto
                 </h1>
                 <p class="mt-8 text-lg sm:text-xl text-slate-600 leading-relaxed max-w-xl mx-auto lg:mx-0">
                     <?= htmlspecialchars($heroLead, ENT_QUOTES, 'UTF-8') ?>
@@ -845,7 +939,7 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
             <div class="bezel-outer" style="box-shadow: 0 12px 32px rgba(6,95,70,0.08), 0 4px 8px rgba(6,95,70,0.03);">
             <div class="bezel-inner overflow-hidden p-0">
                 <div class="overflow-x-auto -mx-4 sm:mx-0">
-                <table class="w-full text-sm">
+                <table class="comparison-table w-full text-sm">
                     <thead>
                         <tr class="bg-brand-50">
                             <th class="text-left py-4 px-6 font-semibold text-slate-900" style="width: 40%"></th>
