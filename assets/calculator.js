@@ -83,7 +83,7 @@
     row.className = 'ingredient-row grid grid-cols-12 gap-2 items-center';
     row.innerHTML =
       '<div class="col-span-5">' +
-      '<input type="text" placeholder="Ingrediente" class="ing-name w-full text-sm px-3 py-2 rounded-lg border border-slate-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 outline-none transition" />' +
+      '<input type="text" placeholder="Insumo" class="ing-name w-full text-sm px-3 py-2 rounded-lg border border-slate-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 outline-none transition" />' +
       '</div>' +
       '<div class="col-span-2">' +
       '<input type="number" placeholder="500" min="0" step="any" class="ing-qty w-full text-sm px-3 py-2 rounded-lg border border-slate-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 outline-none transition" />' +
@@ -92,7 +92,7 @@
       '<input type="number" placeholder="1.200" min="0" step="any" class="ing-price w-full text-sm px-3 py-2 rounded-lg border border-slate-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 outline-none transition" />' +
       '</div>' +
       '<div class="col-span-2 flex items-end">' +
-      '<button type="button" class="remove-ing w-8 h-8 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition flex items-center justify-center" aria-label="Eliminar ingrediente">' +
+      '<button type="button" class="remove-ing w-8 h-8 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition flex items-center justify-center" aria-label="Eliminar insumo">' +
       '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>' +
       '</button>' +
       '</div>';

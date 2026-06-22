@@ -66,6 +66,7 @@ core/
   └── Encryption.php
 assets/
   ├── landing.css
+  ├── landing.js
   ├── calculator.js
   └── fonts/
       └── *.woff2
