@@ -3,47 +3,50 @@
  * MiMargen Landing Page
  *
  * Single-file PHP entry point for the apex domain (mimargen.cl).
- * Bootstraps the PHP backend, injects PlatformSettings variables,
+ * Bootstraps the standalone PHP backend, injects PlatformSettings variables,
  * generates canonical/OG meta tags, and handles honeypot lead-capture.
+ *
+ * NOTE: This is the standalone deployment build. It mirrors the design and
+ * content of OtterErp's public/landing.php but keeps the JSON storage backend
+ * (core/JsonStorage.php) instead of SqliteStorage, per DEPLOY.md contract.
  */
 
 require_once __DIR__ . '/core/bootstrap.php';
+
+$appName    = defined('APP_NAME') ? APP_NAME : 'MiMargen';
+$baseDomain = defined('BASE_DOMAIN') ? BASE_DOMAIN : 'mimargen.cl';
 
 // Load platform settings (OtterErp contract: requires rootDataDir)
 $rootDataDir = dirname(__DIR__) . '/data';
 $settings    = PlatformSettings::load($rootDataDir);
 
 // Extract settings with fallbacks
-$heroTitle       = $settings['hero_title']       ?? 'Conoce cuánto ganas realmente con cada producto';
-$heroLead        = $settings['hero_lead']        ?? 'Crea recetas con tus ingredientes, calcula el costo real de producción —incluyendo merma— y conoce tu margen de ganancia real. Todo en un solo lugar, sin hojas de cálculo que no te cierran.';
-$contactEmail    = $settings['contact_email']    ?? null;
+$contactEmail    = $settings['contact_email']    ?? ('contacto@' . $baseDomain);
 $contactPhone    = $settings['contact_phone']    ?? '+56 9 0000 0000';
 $contactWhatsApp = $settings['contact_whatsapp'] ?? '56900000000';
 $contactCity     = $settings['contact_city']     ?? 'Santiago, Chile';
-$socialLinkedin  = $settings['social_linkedin']  ?? null;
-$socialInstagram = $settings['social_instagram'] ?? null;
+$heroLead        = $settings['hero_lead']        ?? 'Crea recetas con tus ingredientes, calcula el costo real de producción —incluyendo merma— y conoce tu margen de ganancia real. Todo en un solo lugar, sin hojas de cálculo que no te cierran.';
+$heroTitle       = $settings['hero_title']       ?? 'Conoce cuánto *ganas realmente* con cada producto';
+
+// El título del hero admite *palabra* como marcador: ese tramo se renderiza con
+// el acento de marca + subrayado animado. Se escapa primero y luego se inyecta
+// el span, de modo que el texto del admin nunca produce HTML arbitrario.
+$heroTitleHtml = preg_replace_callback(
+    '/\*([^*]+)\*/',
+    static fn (array $m): string => '<span class="text-brand-600 hl-underline">' . $m[1] . '</span>',
+    htmlspecialchars($heroTitle, ENT_QUOTES, 'UTF-8')
+);
+
+$socialLinkedin  = $settings['social_linkedin']  ?? '';
+$socialInstagram = $settings['social_instagram'] ?? '';
 
 // Logo (separate methods, not in load())
 $brandLogo = PlatformSettings::brandLogoDataUrl($rootDataDir);
 
-// Canonical URL
-$scheme    = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-$host      = $_SERVER['HTTP_HOST'] ?? (defined('BASE_DOMAIN') ? BASE_DOMAIN : 'mimargen.cl');
-$canonical = $scheme . '://' . $host . '/';
-
-// Page meta (hardcoded — not in PlatformSettings whitelist)
-$metaTitle       = 'MiMargen · Calcula el costo y margen real de tus recetas';
-$metaDescription = 'Calcula tu margen de ganancia de verdad. Costeo por receta, merma, mano de obra y precio de venta. Diseñado para emprendedores y pequeños productores en Chile.';
-
 // ── Handle POST form submission (honeypot + lead capture) ──────
-// Contract: must match OtterErp landing.php handler exactly
-$formError    = '';
-$formSuccess  = false;
-$formNombre   = '';
-$formEmpresa  = '';
-$formEmail    = '';
-$formTelefono = '';
-$formMensaje  = '';
+$formError   = '';
+$formSuccess = false;
+$formValues  = ['nombre' => '', 'empresa' => '', 'email' => '', 'telefono' => '', 'mensaje' => ''];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'lead') {
 
@@ -51,19 +54,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'lead'
     if (!empty($_POST['website'] ?? '')) {
         $formSuccess = true;
     } else {
-        $formNombre   = trim((string)($_POST['nombre']   ?? ''));
-        $formEmpresa  = trim((string)($_POST['empresa']  ?? ''));
-        $formEmail    = trim((string)($_POST['email']    ?? ''));
-        $formTelefono = trim((string)($_POST['telefono'] ?? ''));
-        $formMensaje  = trim((string)($_POST['mensaje']  ?? ''));
+        $formValues['nombre']   = trim((string)($_POST['nombre']   ?? ''));
+        $formValues['empresa']  = trim((string)($_POST['empresa']  ?? ''));
+        $formValues['email']    = trim((string)($_POST['email']    ?? ''));
+        $formValues['telefono'] = trim((string)($_POST['telefono'] ?? ''));
+        $formValues['mensaje']  = trim((string)($_POST['mensaje']  ?? ''));
 
-        // Server-side validation (matches OtterErp contract)
-        if (mb_strlen($formNombre) < 2) {
+        if (mb_strlen($formValues['nombre']) < 2) {
             $formError = 'Cuéntanos tu nombre.';
-        } elseif (mb_strlen($formEmpresa) < 2) {
-            $formError = 'Indica el nombre de tu empresa.';
-        } elseif (!filter_var($formEmail, FILTER_VALIDATE_EMAIL)) {
+        } elseif (!filter_var($formValues['email'], FILTER_VALIDATE_EMAIL)) {
             $formError = 'Necesitamos un correo válido para escribirte.';
+        } elseif (mb_strlen($formValues['empresa']) < 2) {
+            $formError = 'Indica el nombre de tu empresa.';
         } else {
             try {
                 $platformDir = dirname(__DIR__) . '/data/_platform';
@@ -73,31 +75,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'lead'
                 $enc     = new Encryption(APP_SECRET);
                 $storage = new JsonStorage($platformDir, $enc);
                 $storage->insert('leads', [
-                    'nombre'     => $formNombre,
-                    'empresa'    => $formEmpresa,
-                    'email'      => $formEmail,
-                    'telefono'   => $formTelefono,
-                    'mensaje'    => $formMensaje,
+                    'nombre'     => $formValues['nombre'],
+                    'empresa'    => $formValues['empresa'],
+                    'email'      => $formValues['email'],
+                    'telefono'   => $formValues['telefono'],
+                    'mensaje'    => $formValues['mensaje'],
                     'ip'         => $_SERVER['REMOTE_ADDR'] ?? '',
                     'user_agent' => substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 255),
                     'referer'    => substr((string)($_SERVER['HTTP_REFERER']    ?? ''), 0, 255),
                     'created_at' => date('c'),
                 ]);
                 $formSuccess = true;
+                $formValues  = ['nombre' => '', 'empresa' => '', 'email' => '', 'telefono' => '', 'mensaje' => ''];
             } catch (Throwable $e) {
-                $displayEmail = $contactEmail ?? 'contacto@' . $host;
-                $formError = 'No pudimos guardar tu solicitud. Escríbenos directo a ' . htmlspecialchars($displayEmail) . '.';
+                $formError = 'No pudimos guardar tu solicitud. Escríbenos directo a ' . htmlspecialchars($contactEmail) . '.';
             }
         }
     }
+
+    // El modal "Solicita tu prueba" envía por AJAX; respondemos JSON y cortamos
+    // el render del HTML. El form del hero sigue funcionando sin JS (full POST).
+    if (strtolower((string)($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')) === 'xmlhttprequest') {
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(
+            $formSuccess
+                ? ['ok' => true]
+                : ['ok' => false, 'error' => $formError !== '' ? $formError : 'No pudimos procesar tu solicitud.'],
+            JSON_UNESCAPED_UNICODE
+        );
+        exit;
+    }
 }
+
+// ── Canonical / OG ──────────────────────────────────────────────
+$scheme    = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+$host      = $_SERVER['HTTP_HOST'] ?? $baseDomain;
+$canonical = $scheme . '://' . $host . '/';
+$ogImage   = $scheme . '://' . $host . '/assets/og-image.png';
+
+// Page meta (hardcoded — not in PlatformSettings whitelist)
+$metaTitle       = $appName . ' · Calcula el costo y margen real de tus productos';
+$metaDescription = 'Calcula tu margen de ganancia de verdad: costeo por insumos, merma, mano de obra y precio de venta. Inventario, ventas y facturación electrónica para quienes fabrican o transforman insumos en Chile.';
 
 // JSON-LD Schema
 $jsonLd = [
     '@context' => 'https://schema.org',
     '@type' => 'SoftwareApplication',
-    'name' => 'MiMargen',
-    'description' => 'Software de gestión para pequeños productores con costeo por receta, inventario, ventas y facturación electrónica.',
+    'name' => $appName,
+    'description' => 'Software de gestión para pequeños fabricantes y productores: costeo de productos por insumos, inventario, ventas y facturación electrónica.',
     'url' => $canonical,
     'applicationCategory' => 'BusinessApplication',
     'operatingSystem' => 'Web',
@@ -123,9 +148,10 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
     <title><?= htmlspecialchars($metaTitle, ENT_QUOTES, 'UTF-8') ?></title>
     <meta name="title" content="<?= htmlspecialchars($metaTitle, ENT_QUOTES, 'UTF-8') ?>">
     <meta name="description" content="<?= htmlspecialchars($metaDescription, ENT_QUOTES, 'UTF-8') ?>">
-    <meta name="keywords" content="calcular costo de producción, margen de ganancia, costeo por receta, software inventario, ERP pymes Chile, control de stock, facturación electrónica, MiMargen">
-    <meta name="author" content="MiMargen">
+    <meta name="keywords" content="calcular costo de producción, margen de ganancia, costeo de productos, software inventario, ERP pymes Chile, control de stock, facturación electrónica, insumos, manufactura">
+    <meta name="author" content="<?= htmlspecialchars($appName, ENT_QUOTES, 'UTF-8') ?>">
     <meta name="robots" content="index, follow">
+    <meta name="theme-color" content="#059669">
     <link rel="canonical" href="<?= htmlspecialchars($canonical, ENT_QUOTES, 'UTF-8') ?>">
 
     <!-- Open Graph / Facebook -->
@@ -133,16 +159,16 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
     <meta property="og:url" content="<?= htmlspecialchars($canonical, ENT_QUOTES, 'UTF-8') ?>">
     <meta property="og:title" content="<?= htmlspecialchars($metaTitle, ENT_QUOTES, 'UTF-8') ?>">
     <meta property="og:description" content="<?= htmlspecialchars($metaDescription, ENT_QUOTES, 'UTF-8') ?>">
-    <meta property="og:image" content="https://mimargen.cl/assets/og-image.png">
+    <meta property="og:image" content="<?= htmlspecialchars($ogImage, ENT_QUOTES, 'UTF-8') ?>">
     <meta property="og:locale" content="es_CL">
-    <meta property="og:site_name" content="MiMargen">
+    <meta property="og:site_name" content="<?= htmlspecialchars($appName, ENT_QUOTES, 'UTF-8') ?>">
 
     <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:url" content="<?= htmlspecialchars($canonical, ENT_QUOTES, 'UTF-8') ?>">
     <meta name="twitter:title" content="<?= htmlspecialchars($metaTitle, ENT_QUOTES, 'UTF-8') ?>">
     <meta name="twitter:description" content="<?= htmlspecialchars($metaDescription, ENT_QUOTES, 'UTF-8') ?>">
-    <meta name="twitter:image" content="https://mimargen.cl/assets/og-image.png">
+    <meta name="twitter:image" content="<?= htmlspecialchars($ogImage, ENT_QUOTES, 'UTF-8') ?>">
 
     <!-- JSON-LD Schema -->
     <script type="application/ld+json"><?= $jsonLdString ?></script>
@@ -156,7 +182,7 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
     <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
         /* ═══════════════════════════════════════════════════════
-           PREMIUM CSS ARCHITECTURE — MiMargen Landing
+           PREMIUM CSS ARCHITECTURE — Landing
            ═══════════════════════════════════════════════════════ */
 
         :root {
@@ -175,8 +201,7 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
         h3 { font-size: 1.125rem; font-weight: 600; }
 
         /* ── Section Spacing ─────────────────────────────── */
-        .section-spacing { margin-bottom: 6rem; }
-        @media (min-width: 768px) { .section-spacing { margin-bottom: 8rem; } }
+        .section-spacing { margin-bottom: 0; }
 
         /* ── Better button padding ───────────────────────── */
         .btn-secondary-fixed { padding: 0.875rem 2rem !important; min-width: 200px; }
@@ -186,16 +211,17 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
 
         /* ── Double-Bezel Card Architecture (Stitch-subtle) ── */
         .bezel-outer {
-            background: rgba(248, 250, 252, 0.5);
-            border: 1px solid rgba(203, 213, 225, 0.4);
+            background: rgba(248, 250, 252, 0.6);
+            border: 1px solid rgba(148, 163, 184, 0.35);
             border-radius: 1.75rem;
             padding: 0.5rem;
-            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.02);
+            box-shadow: 0 4px 16px rgba(15, 23, 42, 0.05), 0 1px 3px rgba(15, 23, 42, 0.04);
         }
         .bezel-inner {
             background: white;
+            border: 1px solid rgba(226, 232, 240, 0.8);
             border-radius: 1.25rem;
-            box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.9), 0 1px 3px rgba(0, 0, 0, 0.04);
+            box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.9), 0 1px 3px rgba(15, 23, 42, 0.05);
             padding: 2rem;
         }
 
@@ -277,23 +303,17 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
 
         /* ── Section Backgrounds ─────────────────────────── */
         .section-hero-gradient { background: radial-gradient(ellipse 80% 60% at 30% 20%, rgba(16,185,129,0.06) 0%, rgba(255,255,255,1) 70%); }
-        .section-brand-tint { background-color: rgba(236, 253, 245, 0.25); margin-top: 4rem; margin-bottom: 4rem; border-radius: 2rem; }
-        .section-slate-tint { background-color: rgba(248, 250, 252, 0.5); margin-top: 4rem; margin-bottom: 4rem; border-radius: 2rem; }
+        .section-brand-tint { background-color: rgba(236, 253, 245, 0.25); }
+        .section-slate-tint { background-color: rgba(248, 250, 252, 0.5); }
         .section-dark-cta { background: linear-gradient(160deg, #0f172a 0%, #1a2636 40%, #0f172a 100%); }
 
         /* ── Pricing Popular (Z-Axis Cascade) ────────────── */
         .pricing-popular-wrapper {
             transform: scale(1.08);
             z-index: 10;
-            transition: transform 350ms var(--ease-premium), box-shadow 350ms var(--ease-premium);
-        }
-        .pricing-popular-wrapper:hover {
-            transform: scale(1.08) translateY(-4px);
-            box-shadow: 0 20px 40px rgba(16, 185, 129, 0.15);
         }
         @media (max-width: 767px) {
             .pricing-popular-wrapper { transform: scale(1); }
-            .pricing-popular-wrapper:hover { transform: translateY(-4px); }
         }
         .pricing-popular {
             position: relative;
@@ -380,15 +400,15 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
 
         /* ── Bigger, Bolder Buttons ─────────────────────── */
         .btn-primary-large {
-            font-size: 1rem;
-            padding: 0.875rem 1.75rem;
+            font-size: 1.125rem;
+            padding: 1rem 2.25rem;
             background: linear-gradient(135deg, #059669 0%, #047857 100%);
             box-shadow: 0 10px 30px rgba(16, 185, 129, 0.25), 0 4px 10px rgba(16, 185, 129, 0.15);
             transition: all 400ms var(--ease-premium);
         }
         .btn-primary-large:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 16px 32px rgba(16, 185, 129, 0.3), 0 6px 16px rgba(16, 185, 129, 0.18);
+            transform: translateY(-4px);
+            box-shadow: 0 20px 40px rgba(16, 185, 129, 0.35), 0 8px 20px rgba(16, 185, 129, 0.2);
         }
         .btn-primary-large:active {
             transform: translateY(-1px) scale(0.98);
@@ -396,16 +416,17 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
 
         /* ── Stronger Double-Bezel (now subtle Stitch) ──── */
         .bezel-outer-strong {
-            background: rgba(248, 250, 252, 0.5);
-            border: 1px solid rgba(203, 213, 225, 0.4);
+            background: rgba(248, 250, 252, 0.6);
+            border: 1px solid rgba(148, 163, 184, 0.35);
             border-radius: 1.75rem;
             padding: 0.5rem;
-            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.02);
+            box-shadow: 0 4px 16px rgba(15, 23, 42, 0.05), 0 1px 3px rgba(15, 23, 42, 0.04);
         }
         .bezel-inner-strong {
             background: white;
+            border: 1px solid rgba(226, 232, 240, 0.8);
             border-radius: 1.25rem;
-            box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.9), 0 1px 3px rgba(0, 0, 0, 0.04);
+            box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.9), 0 1px 3px rgba(15, 23, 42, 0.05);
             padding: 2rem;
         }
 
@@ -413,8 +434,6 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
         .pricing-popular-emphasis {
             transform: scale(1.08);
             box-shadow: 0 25px 50px rgba(16, 185, 129, 0.15), 0 0 0 1px rgba(16, 185, 129, 0.2);
-            border-radius: 1.75rem;
-            overflow: hidden;
         }
         @media (max-width: 767px) {
             .pricing-popular-emphasis { transform: scale(1); }
@@ -548,10 +567,6 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
         /* ── Minimal pain point cards ────────────────────── */
         .pain-card-minimal .bezel-inner {
             padding: 2rem 1.5rem;
-            min-height: 220px;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
         }
         .pain-card-minimal .icon-minimal-wrap {
             margin-bottom: 1rem;
@@ -606,20 +621,51 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
             transform: translateY(-2px) rotate(-3deg);
         }
 
-        /* ── Stronger card lift on hover ── */
-        .bezel-card:hover {
-            box-shadow: 0 16px 40px rgba(16,185,129,0.12), 0 4px 10px rgba(16,185,129,0.05);
+        /* ── Same brand chip for pain-point & step icons ── */
+        #producto .pain-card-minimal .icon-minimal,
+        #como-funciona .bezel-card .icon-minimal {
+            display: block;
+            margin-left: auto; margin-right: auto;
+            width: 3rem; height: 3rem; padding: 0.7rem;
+            box-sizing: border-box;
+            border-radius: 0.9rem;
+            background: linear-gradient(135deg, rgba(16,185,129,0.12), rgba(16,185,129,0.05));
+            border: 1px solid rgba(16,185,129,0.16);
+            color: #059669;
+            transition: background 350ms var(--ease-premium),
+                        color 350ms var(--ease-premium),
+                        transform 350ms var(--ease-premium),
+                        border-color 350ms var(--ease-premium);
+        }
+        #producto .pain-card-minimal:hover .icon-minimal,
+        #como-funciona .bezel-card:hover .icon-minimal {
+            background: linear-gradient(135deg, #10b981, #059669);
+            border-color: transparent;
+            color: #fff;
+            transform: translateY(-2px) rotate(-3deg);
         }
 
-        /* ── Comparison table: highlight the MiMargen column ── */
+        /* ── Stronger card lift on hover ── */
+        .bezel-card:hover {
+            box-shadow: 0 18px 44px rgba(16,185,129,0.16), 0 6px 14px rgba(15,23,42,0.06);
+            border-color: rgba(16,185,129,0.3);
+        }
+
+        /* ── Comparison table: highlight the product column ── */
         .comparison-table td:nth-child(2),
         .comparison-table th:nth-child(2) {
-            background: rgba(16,185,129,0.06);
-            box-shadow: inset 1px 0 0 rgba(16,185,129,0.14), inset -1px 0 0 rgba(16,185,129,0.14);
+            background: rgba(16,185,129,0.08);
+            box-shadow: inset 1px 0 0 rgba(16,185,129,0.22), inset -1px 0 0 rgba(16,185,129,0.22);
         }
         .comparison-table thead th:nth-child(2) {
-            background: rgba(16,185,129,0.14);
-            box-shadow: inset 1px 0 0 rgba(16,185,129,0.18), inset -1px 0 0 rgba(16,185,129,0.18);
+            background: rgba(16,185,129,0.18);
+            box-shadow: inset 1px 0 0 rgba(16,185,129,0.28), inset -1px 0 0 rgba(16,185,129,0.28);
+        }
+        .comparison-table td .inline-flex { gap: 0.375rem; }
+        .comparison-table tbody tr:last-child td:nth-child(2) {
+            box-shadow: inset 1px 0 0 rgba(16,185,129,0.22), inset -1px 0 0 rgba(16,185,129,0.22), inset 0 -2px 0 rgba(16,185,129,0.28);
+            border-bottom-left-radius: 0.5rem;
+            border-bottom-right-radius: 0.5rem;
         }
 
         /* ── Industry icons: lift + colorize on hover ── */
@@ -647,6 +693,95 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
             pointer-events: none;
         }
         .section-dark-cta > * { position: relative; z-index: 1; }
+
+        /* ── Modal "Ya soy cliente" (slug → subdominio) ──────────── */
+        .client-modal {
+            position: fixed; inset: 0; z-index: 100;
+            background: rgba(15,23,42,.55); backdrop-filter: blur(4px);
+            display: none; align-items: center; justify-content: center; padding: 18px;
+        }
+        .client-modal[aria-hidden="false"] { display: flex; }
+        .client-modal-box {
+            background: #fff; border-radius: 1.25rem; padding: 26px; width: 100%; max-width: 420px;
+            box-shadow: 0 30px 80px -20px rgba(15,23,42,.4);
+        }
+        .client-modal-box h3 { margin: 0 0 6px; font-size: 1.15rem; font-weight: 700; color: #0f172a; }
+        .client-modal-box p { margin: 0 0 18px; color: #64748b; font-size: .88rem; line-height: 1.5; }
+        .client-modal-row { display: flex; align-items: stretch; }
+        .client-modal-row input {
+            flex: 1; min-width: 0; padding: 11px 14px; border: 1.5px solid #e2e8f0;
+            border-radius: 10px 0 0 10px; font-family: inherit; font-size: .95rem; outline: none;
+        }
+        .client-modal-row input:focus { border-color: #10b981; }
+        .client-modal-suffix {
+            display: inline-flex; align-items: center; padding: 0 14px;
+            background: #f1f5f9; color: #64748b; font-size: .88rem;
+            border: 1.5px solid #e2e8f0; border-left: none; border-radius: 0 10px 10px 0; font-weight: 500;
+        }
+        .client-error { margin-top: 8px; color: #be123c; font-size: .8rem; min-height: 18px; }
+        .client-modal-actions { display: flex; gap: 10px; margin-top: 18px; }
+        .client-modal-btn {
+            flex: 1; padding: 11px 16px; border-radius: 10px; font-family: inherit;
+            font-size: .9rem; font-weight: 600; cursor: pointer; border: 1.5px solid transparent;
+        }
+        .client-modal-btn-ghost { background: #fff; color: #1e293b; border-color: #e2e8f0; }
+        .client-modal-btn-ghost:hover { border-color: #cbd5e1; background: #f8fafc; }
+        .client-modal-btn-primary { background: #059669; color: #fff; }
+        .client-modal-btn-primary:hover { background: #047857; }
+        .client-modal-sr {
+            position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+            overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+        }
+
+        /* ── Banner de cookies (consentimiento opt-in, ley Chile / RGPD) ── */
+        .cookie-banner {
+            position: fixed; left: 0; right: 0; bottom: 0; z-index: 90;
+            display: none; padding: 14px;
+        }
+        .cookie-banner[data-show="1"] { display: block; }
+        .cookie-banner-inner {
+            max-width: 72rem; margin: 0 auto; background: #fff;
+            border: 1px solid rgba(148,163,184,.35); border-radius: 1rem;
+            box-shadow: 0 14px 44px rgba(15,23,42,.16);
+            padding: 18px 20px;
+            display: flex; flex-wrap: wrap; align-items: center; gap: 14px 22px;
+        }
+        .cookie-banner-text { flex: 1 1 320px; font-size: .85rem; color: #475569; line-height: 1.55; }
+        .cookie-banner-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+        .cookie-btn {
+            padding: 10px 20px; border-radius: 9999px; font-size: .85rem; font-weight: 600;
+            font-family: inherit; cursor: pointer; border: 1.5px solid transparent; white-space: nowrap;
+        }
+        .cookie-btn-ghost { background: #fff; color: #1e293b; border-color: #cbd5e1; }
+        .cookie-btn-ghost:hover { background: #f8fafc; border-color: #94a3b8; }
+        .cookie-btn-primary { background: #059669; color: #fff; }
+        .cookie-btn-primary:hover { background: #047857; }
+        .cookie-btn-link { background: none; border: none; color: #64748b; text-decoration: underline; padding: 10px 6px; }
+        .cookie-btn-link:hover { color: #0f172a; }
+
+        /* Categorías + toggle del modal de preferencias */
+        .cookie-cat {
+            display: flex; align-items: flex-start; justify-content: space-between;
+            gap: 16px; padding: 14px 0; border-top: 1px solid #f1f5f9;
+        }
+        .cookie-cat:first-of-type { border-top: none; }
+        .cookie-cat h4 { margin: 0 0 3px; font-size: .92rem; font-weight: 600; color: #0f172a; }
+        .cookie-cat p { margin: 0; font-size: .8rem; color: #64748b; line-height: 1.45; }
+        .cookie-switch { position: relative; flex-shrink: 0; width: 42px; height: 24px; }
+        .cookie-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+        .cookie-switch span {
+            position: absolute; inset: 0; border-radius: 9999px; background: #cbd5e1;
+            transition: background .2s; cursor: pointer;
+        }
+        .cookie-switch span::after {
+            content: ''; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px;
+            border-radius: 9999px; background: #fff; transition: transform .2s;
+            box-shadow: 0 1px 2px rgba(15,23,42,.2);
+        }
+        .cookie-switch input:checked + span { background: #059669; }
+        .cookie-switch input:checked + span::after { transform: translateX(18px); }
+        .cookie-switch input:disabled + span { background: #6ee7b7; cursor: not-allowed; }
+        .cookie-switch input:focus-visible + span { outline: 2px solid #10b981; outline-offset: 2px; }
     </style>
 </head>
 <body class="font-sans antialiased text-slate-800 bg-white">
@@ -656,8 +791,8 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
     <nav class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         <!-- Logo -->
         <a href="#" class="flex items-center gap-2.5 group">
-            <img src="/assets/logo-icon.svg" alt="MiMargen" class="w-8 h-8 group-hover:scale-105 transition-all duration-350" style="transition-timing-function: var(--ease-premium)">
-            <span class="text-lg font-bold text-slate-900 tracking-tight">Mi<span class="text-brand-600">Margen</span></span>
+            <img src="<?= $brandLogo ? htmlspecialchars($brandLogo, ENT_QUOTES, 'UTF-8') : '/assets/logo-icon.svg' ?>" alt="<?= htmlspecialchars($appName, ENT_QUOTES, 'UTF-8') ?>" class="w-8 h-8 group-hover:scale-105 transition-all duration-350" style="transition-timing-function: var(--ease-premium)">
+            <span class="text-lg font-bold text-slate-900 tracking-tight"><?= htmlspecialchars($appName, ENT_QUOTES, 'UTF-8') ?></span>
         </a>
 
         <!-- Desktop Nav -->
@@ -666,7 +801,8 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
             <a href="#precios" class="text-sm font-medium text-slate-600 hover:text-brand-600 transition-colors duration-350" style="transition-timing-function: var(--ease-premium)">Precios</a>
             <a href="#calculadora" class="text-sm font-medium text-slate-600 hover:text-brand-600 transition-colors duration-350" style="transition-timing-function: var(--ease-premium)">Calculadora</a>
             <a href="#faq" class="text-sm font-medium text-slate-600 hover:text-brand-600 transition-colors duration-350" style="transition-timing-function: var(--ease-premium)">FAQ</a>
-            <a href="#precios" class="ml-2 btn-premium btn-nav inline-flex items-center rounded-full bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 shadow-brand-md hover:shadow-brand-lg">Pruébalo gratis</a>
+            <a href="#" data-client-open class="text-sm font-medium text-slate-600 hover:text-brand-600 transition-colors duration-350" style="transition-timing-function: var(--ease-premium)">Ingresar</a>
+            <a href="#" data-trial-open class="ml-2 btn-premium btn-nav inline-flex items-center rounded-full bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 shadow-brand-md hover:shadow-brand-lg">Pruébalo gratis</a>
         </div>
 
         <!-- Mobile Menu Button -->
@@ -684,14 +820,15 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
             <a href="#precios" class="block text-sm font-medium text-slate-600 hover:text-brand-600 transition-colors py-2">Precios</a>
             <a href="#calculadora" class="block text-sm font-medium text-slate-600 hover:text-brand-600 transition-colors py-2">Calculadora</a>
             <a href="#faq" class="block text-sm font-medium text-slate-600 hover:text-brand-600 transition-colors py-2">FAQ</a>
-            <a href="#precios" class="block text-center px-4 py-2.5 rounded-full bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 transition-colors">Pruébalo gratis</a>
+            <a href="#" data-client-open class="block text-sm font-medium text-slate-600 hover:text-brand-600 transition-colors py-2">Ingresar</a>
+            <a href="#" data-trial-open class="block text-center px-4 py-2.5 rounded-full bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 transition-colors">Pruébalo gratis</a>
         </div>
     </div>
 </header>
 
 <main>
 <!-- Hero -->
-<section class="relative pt-32 pb-20 sm:pt-40 sm:pb-28 lg:pt-44 lg:pb-36 overflow-hidden section-hero-gradient section-divider-fade">
+<section class="relative pt-32 pb-16 sm:pt-40 sm:pb-20 lg:pt-44 lg:pb-24 overflow-hidden section-hero-gradient section-divider-fade">
     <!-- Subtle background decoration -->
     <div class="absolute inset-0 -z-10">
         <div class="absolute top-0 right-0 w-[50rem] h-[50rem] bg-brand-100/20 rounded-full blur-[100px] -translate-y-1/3 translate-x-1/4"></div>
@@ -704,19 +841,19 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
             <!-- Text (50%) -->
             <div class="text-center lg:text-left">
                 <h1 class="text-slate-900">
-                    Conoce cuánto ganas <span class="text-brand-600 hl-underline">realmente</span> con cada producto
+                    <?= $heroTitleHtml ?>
                 </h1>
                 <p class="mt-8 text-lg sm:text-xl text-slate-600 leading-relaxed max-w-xl mx-auto lg:mx-0">
                     <?= htmlspecialchars($heroLead, ENT_QUOTES, 'UTF-8') ?>
                 </p>
                 <div class="mt-10 flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
-                    <a href="#precios" class="btn-primary-large btn-premium inline-flex items-center justify-center font-semibold rounded-full text-white group">
+                    <a href="#" data-trial-open class="btn-primary-large btn-premium inline-flex items-center justify-center font-semibold rounded-full text-white group">
                         Pruébalo gratis 14 días
                         <span class="btn-icon ml-2 inline-flex">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
                         </span>
                     </a>
-                    <a href="#como-funciona" class="btn-secondary inline-flex items-center justify-center font-medium rounded-full text-sm py-2.5 px-5 bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 hover:border-slate-300 shadow-refined-sm">
+                    <a href="#como-funciona" class="btn-secondary btn-secondary-fixed inline-flex items-center justify-center font-medium rounded-full text-base py-3.5 bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 hover:border-slate-300 shadow-refined-sm">
                         <svg class="w-5 h-5 mr-2 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -728,7 +865,7 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
             </div>
 
             <!-- Lead capture form (50%) — Double-Bezel -->
-            <div>
+            <div id="contacto">
                 <?php if ($formSuccess): ?>
                     <div class="bezel-outer" style="box-shadow: 0 20px 50px rgba(0,0,0,0.06), 0 8px 20px rgba(0,0,0,0.03);">
                         <div class="bezel-inner text-center py-10">
@@ -762,7 +899,7 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
                         <div>
                             <label for="lead-nombre" class="block text-xs font-medium text-slate-600 mb-1.5">Nombre</label>
                             <input type="text" id="lead-nombre" name="nombre" required
-                                   value="<?= htmlspecialchars($formNombre ?? '', ENT_QUOTES, 'UTF-8') ?>"
+                                   value="<?= htmlspecialchars($formValues['nombre'], ENT_QUOTES, 'UTF-8') ?>"
                                    class="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-brand-400 focus:ring-2 focus:ring-brand-100 outline-none transition-all duration-350 bg-slate-50/50 focus:bg-white"
                                    style="transition-timing-function: var(--ease-premium)"
                                    placeholder="Tu nombre">
@@ -770,7 +907,7 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
                         <div>
                             <label for="lead-empresa" class="block text-xs font-medium text-slate-600 mb-1.5">Empresa</label>
                             <input type="text" id="lead-empresa" name="empresa" required
-                                   value="<?= htmlspecialchars($formEmpresa ?? '', ENT_QUOTES, 'UTF-8') ?>"
+                                   value="<?= htmlspecialchars($formValues['empresa'], ENT_QUOTES, 'UTF-8') ?>"
                                    class="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-brand-400 focus:ring-2 focus:ring-brand-100 outline-none transition-all duration-350 bg-slate-50/50 focus:bg-white"
                                    style="transition-timing-function: var(--ease-premium)"
                                    placeholder="Nombre de tu empresa">
@@ -778,7 +915,7 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
                         <div>
                             <label for="lead-email" class="block text-xs font-medium text-slate-600 mb-1.5">Correo electrónico</label>
                             <input type="email" id="lead-email" name="email" required
-                                   value="<?= htmlspecialchars($formEmail ?? '', ENT_QUOTES, 'UTF-8') ?>"
+                                   value="<?= htmlspecialchars($formValues['email'], ENT_QUOTES, 'UTF-8') ?>"
                                    class="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-brand-400 focus:ring-2 focus:ring-brand-100 outline-none transition-all duration-350 bg-slate-50/50 focus:bg-white"
                                    style="transition-timing-function: var(--ease-premium)"
                                    placeholder="tu@email.com">
@@ -800,7 +937,7 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
 </section>
 
 <!-- Pain Points -->
-<section id="producto" class="py-24 sm:py-32 bg-white section-spacing">
+<section id="producto" class="py-16 sm:py-20 bg-white section-spacing">
     <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="text-center max-w-2xl mx-auto mb-12 sm:mb-16 reveal">
             <h2 class="text-slate-900">¿Te suena familiar?</h2>
@@ -814,14 +951,14 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
                         <svg class="icon-minimal mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" /><circle cx="17" cy="7" r="2" fill="currentColor" opacity="0.3"/></svg>
                     </div>
                     <h3 class="text-lg font-semibold text-slate-900 mb-2">Pones precios a ojo</h3>
-                    <p class="text-slate-600 text-sm leading-relaxed">Sumas los ingredientes, le multiplicas por dos y esperas que alcance. Pero nunca sabes si realmente estás ganando o perdiendo plata.</p>
+                    <p class="text-slate-600 text-sm leading-relaxed">Sumas los insumos, le multiplicas por dos y esperas que alcance. Pero nunca sabes si realmente estás ganando o perdiendo plata.</p>
                 </div>
             </div>
             <!-- Card 2 — Double-Bezel minimal -->
-                    <div class="bezel-outer bezel-card reveal reveal-delay-1 pain-card-minimal">
+            <div class="bezel-outer bezel-card reveal reveal-delay-1 pain-card-minimal">
                 <div class="bezel-inner text-center">
                     <div class="icon-minimal-wrap">
-                        <svg class="icon-minimal mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 10h18M3 14h18M3 6h18M3 18h18M10 3v18M14 3v18" /></svg>
+                        <svg class="icon-minimal mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3.75 6A2.25 2.25 0 016 3.75h12A2.25 2.25 0 0120.25 6v12A2.25 2.25 0 0118 20.25H6A2.25 2.25 0 013.75 18V6zM3.75 9h16.5M3.75 14.25h16.5M9 9v11.25M15 9v11.25" /></svg>
                     </div>
                     <h3 class="text-lg font-semibold text-slate-900 mb-2">Tu Excel ya no da para más</h3>
                     <p class="text-slate-600 text-sm leading-relaxed">Tienes diez hojas de cálculo, fórmulas que se rompen solas y cada vez que cambia un precio de insumo, tienes que actualizar todo a mano.</p>
@@ -842,7 +979,7 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
 </section>
 
 <!-- How It Works -->
-<section id="como-funciona" class="py-24 sm:py-32 lg:py-40 section-brand-tint section-spacing">
+<section id="como-funciona" class="py-16 sm:py-20 lg:py-24 section-brand-tint section-spacing">
     <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="text-center max-w-2xl mx-auto mb-14 sm:mb-16 reveal">
             <h2 class="text-slate-900">Tres pasos hacia el control total</h2>
@@ -856,8 +993,8 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
                 <div class="bezel-outer bezel-card">
                     <div class="bezel-inner">
                         <svg class="icon-minimal mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
-                        <h3 class="text-lg font-semibold text-slate-900 mb-2">Crea tu receta</h3>
-                        <p class="text-slate-600 text-sm leading-relaxed">Agrega los ingredientes o materiales que usas, con sus cantidades exactas. Puedes usar productos de tu inventario o crear insumos nuevos.</p>
+                        <h3 class="text-lg font-semibold text-slate-900 mb-2">Define tu producto</h3>
+                        <p class="text-slate-600 text-sm leading-relaxed">Agrega los insumos o materiales que usas, con sus cantidades exactas. Puedes usar productos de tu inventario o crear insumos nuevos.</p>
                     </div>
                 </div>
             </div>
@@ -869,7 +1006,7 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
                     <div class="bezel-inner">
                         <svg class="icon-minimal mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
                         <h3 class="text-lg font-semibold text-slate-900 mb-2">Calcula el costo real</h3>
-                        <p class="text-slate-600 text-sm leading-relaxed">MiMargen suma automáticamente el costo de materiales, mano de obra, gastos fijos y la merma que generas en el proceso. Sin fórmulas, sin errores.</p>
+                        <p class="text-slate-600 text-sm leading-relaxed"><?= htmlspecialchars($appName, ENT_QUOTES, 'UTF-8') ?> suma automáticamente el costo de insumos, mano de obra, gastos fijos y la merma que generas en el proceso. Sin fórmulas, sin errores.</p>
                     </div>
                 </div>
             </div>
@@ -889,7 +1026,7 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
 </section>
 
 <!-- Features -->
-<section id="features" class="py-24 sm:py-32 bg-white section-spacing">
+<section id="features" class="py-16 sm:py-20 bg-white section-spacing">
     <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="text-center max-w-2xl mx-auto mb-14 sm:mb-16 reveal">
             <h2 class="text-slate-900">Más que costos. Tu negocio entero.</h2>
@@ -900,8 +1037,8 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
             <div class="bezel-outer bezel-card reveal group">
                 <div class="bezel-inner">
                     <svg class="icon-minimal mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
-                    <h3 class="text-base font-semibold text-slate-900 mb-1.5">Costeo por receta</h3>
-                    <p class="text-slate-600 text-sm leading-relaxed">Calcula el costo real de cada producto incluyendo materiales, mano de obra, merma y gastos fijos.</p>
+                    <h3 class="text-base font-semibold text-slate-900 mb-1.5">Costeo por producto</h3>
+                    <p class="text-slate-600 text-sm leading-relaxed">Calcula el costo real de cada producto incluyendo insumos, mano de obra, merma y gastos fijos.</p>
                 </div>
             </div>
             <!-- Feature 2 -->
@@ -925,7 +1062,7 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
                 <div class="bezel-inner">
                     <svg class="icon-minimal mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" /></svg>
                     <h3 class="text-base font-semibold text-slate-900 mb-1.5">Facturación electrónica</h3>
-                    <p class="text-slate-600 text-sm leading-relaxed">Emite boletas, facturas y guías de despacho directamente desde MiMargen. Integrado con el SII.</p>
+                    <p class="text-slate-600 text-sm leading-relaxed">Emite boletas, facturas y guías de despacho directamente desde <?= htmlspecialchars($appName, ENT_QUOTES, 'UTF-8') ?>. Integrado con el SII.</p>
                 </div>
             </div>
             <!-- Feature 5 -->
@@ -955,14 +1092,14 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
                     <thead>
                         <tr class="bg-brand-50">
                             <th class="text-left py-4 px-6 font-semibold text-slate-900" style="width: 40%"></th>
-                            <th class="text-center py-4 px-6 font-semibold text-brand-600" style="width: 20%">MiMargen</th>
+                            <th class="text-center py-4 px-6 font-semibold text-brand-600" style="width: 20%"><?= htmlspecialchars($appName, ENT_QUOTES, 'UTF-8') ?></th>
                             <th class="text-center py-4 px-6 font-semibold text-slate-400" style="width: 20%">Excel</th>
                             <th class="text-center py-4 px-6 font-semibold text-slate-400" style="width: 20%">ERPs tradicionales</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100">
                         <tr class="hover:bg-slate-50/50 transition-colors duration-350" style="transition-timing-function: var(--ease-premium)">
-                            <td class="py-4 px-6 text-slate-700 font-medium">Costeo por receta</td>
+                            <td class="py-4 px-6 text-slate-700 font-medium">Costeo por producto</td>
                             <td class="py-4 px-6 text-center">
                                 <span class="inline-flex items-center gap-1.5 text-brand-600 font-semibold text-sm">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
@@ -970,7 +1107,12 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
                                 </span>
                             </td>
                             <td class="py-4 px-6 text-center text-slate-400">Fórmulas manuales</td>
-                            <td class="py-4 px-6 text-center text-red-400">No existe</td>
+                            <td class="py-4 px-6 text-center">
+                                <span class="inline-flex items-center gap-1.5 text-red-400 text-sm">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/></svg>
+                                    No existe
+                                </span>
+                            </td>
                         </tr>
                         <tr class="hover:bg-slate-50/50 transition-colors duration-350" style="transition-timing-function: var(--ease-premium)">
                             <td class="py-4 px-6 text-slate-700 font-medium">Facturación electrónica</td>
@@ -981,25 +1123,60 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
                                 </span>
                             </td>
                             <td class="py-4 px-6 text-center text-slate-400">Por separado</td>
-                            <td class="py-4 px-6 text-center text-amber-500">A veces</td>
+                            <td class="py-4 px-6 text-center">
+                                <span class="inline-flex items-center gap-1.5 text-amber-500 text-sm" style="color:#f59e0b;">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3.75m0 3h.01M10.06 3.4 1.7 18a2 2 0 0 0 1.73 3h17.14a2 2 0 0 0 1.73-3L13.94 3.4a2 2 0 0 0-3.88 0Z"/></svg>
+                                    A veces
+                                </span>
+                            </td>
                         </tr>
                         <tr class="hover:bg-slate-50/50 transition-colors duration-350" style="transition-timing-function: var(--ease-premium)">
                             <td class="py-4 px-6 text-slate-700 font-medium">Inventario automático</td>
-                            <td class="py-4 px-6 text-center text-brand-600 font-semibold">En tiempo real</td>
+                            <td class="py-4 px-6 text-center">
+                                <span class="inline-flex items-center gap-1.5 text-brand-600 font-semibold text-sm">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+                                    En tiempo real
+                                </span>
+                            </td>
                             <td class="py-4 px-6 text-center text-slate-400">Manual</td>
-                            <td class="py-4 px-6 text-center text-amber-500">Complejo</td>
+                            <td class="py-4 px-6 text-center">
+                                <span class="inline-flex items-center gap-1.5 text-amber-500 text-sm" style="color:#f59e0b;">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3.75m0 3h.01M10.06 3.4 1.7 18a2 2 0 0 0 1.73 3h17.14a2 2 0 0 0 1.73-3L13.94 3.4a2 2 0 0 0-3.88 0Z"/></svg>
+                                    Complejo
+                                </span>
+                            </td>
                         </tr>
                         <tr class="hover:bg-slate-50/50 transition-colors duration-350" style="transition-timing-function: var(--ease-premium)">
                             <td class="py-4 px-6 text-slate-700 font-medium">Curva de aprendizaje</td>
-                            <td class="py-4 px-6 text-center text-brand-600 font-semibold">Horas</td>
+                            <td class="py-4 px-6 text-center">
+                                <span class="inline-flex items-center gap-1.5 text-brand-600 font-semibold text-sm">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+                                    Horas
+                                </span>
+                            </td>
                             <td class="py-4 px-6 text-center text-slate-400">—</td>
-                            <td class="py-4 px-6 text-center text-red-400">Semanas</td>
+                            <td class="py-4 px-6 text-center">
+                                <span class="inline-flex items-center gap-1.5 text-red-400 text-sm">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/></svg>
+                                    Semanas
+                                </span>
+                            </td>
                         </tr>
                         <tr class="hover:bg-slate-50/50 transition-colors duration-350" style="transition-timing-function: var(--ease-premium)">
                             <td class="py-4 px-6 text-slate-700 font-medium">Precio accesible</td>
-                            <td class="py-4 px-6 text-center text-brand-600 font-semibold">Desde $29.990/mes</td>
+                            <td class="py-4 px-6 text-center">
+                                <span class="inline-flex items-center gap-1.5 text-brand-600 font-bold text-sm">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+                                    Desde $29.990/mes
+                                </span>
+                            </td>
                             <td class="py-4 px-6 text-center text-slate-400">"Gratis"</td>
-                            <td class="py-4 px-6 text-center text-red-400">$200.000+/mes</td>
+                            <td class="py-4 px-6 text-center">
+                                <span class="inline-flex items-center gap-1.5 text-red-400 text-sm">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/></svg>
+                                    $200.000+/mes
+                                </span>
+                            </td>
                         </tr>
                     </tbody>
                 </table>
@@ -1011,65 +1188,65 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
 </section>
 
 <!-- Who It's For -->
-<section id="para-quien" class="py-24 sm:py-32 section-slate-tint section-spacing">
+<section id="para-quien" class="py-16 sm:py-20 section-slate-tint section-spacing">
     <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="text-center max-w-2xl mx-auto mb-14 sm:mb-16 reveal">
-            <h2 class="text-slate-900">Hecho para el corazón de la gastronomía</h2>
-            <p class="mt-5 text-lg text-slate-600 leading-relaxed">Si transformas materia prima en producto terminado, MiMargen es para ti.</p>
+            <h2 class="text-slate-900">Hecho para quienes transforman insumos en productos</h2>
+            <p class="mt-5 text-lg text-slate-600 leading-relaxed">Si combinas materiales o insumos para fabricar un producto terminado, <?= htmlspecialchars($appName, ENT_QUOTES, 'UTF-8') ?> es para ti.</p>
         </div>
         <div class="industry-icon-row reveal">
-            <!-- Industry 1: Panaderías -->
+            <!-- Industry 1: Alimentos -->
             <div class="industry-icon-item">
-                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 3c-4 0-7 3-7 7 0 2 1 4 3 5v6h8v-6c2-1 3-3 3-5 0-4-3-7-7-7z M9 21v-2 M15 21v-2" /></svg>
-                <span>Panaderías</span>
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8.25v-1.5m-3 1.5v-1.5m6 1.5v-1.5M6 10.608c0-1.135.845-2.098 1.976-2.192a48.42 48.42 0 0 1 8.048 0C17.155 8.51 18 9.473 18 10.608v2.513m-12 0a48.45 48.45 0 0 0-1.163.16c-1.07.16-1.837 1.094-1.837 2.175v5.169c0 .621.504 1.125 1.125 1.125h19.5c.621 0 1.125-.504 1.125-1.125v-5.17c0-1.08-.768-2.014-1.837-2.174A48.6 48.6 0 0 0 18 13.12M6 13.12c1.99-.246 4-.371 6-.371s4.01.125 6 .371m-12 0V8.443m12 4.677V8.443m0 0a48.41 48.41 0 0 0-12 0M3 16.5l1.5.75a3.354 3.354 0 0 0 3 0 3.354 3.354 0 0 1 3 0 3.354 3.354 0 0 0 3 0 3.354 3.354 0 0 1 3 0 3.354 3.354 0 0 0 3 0L21 16.5" /></svg>
+                <span>Alimentos</span>
             </div>
-            <!-- Industry 2: Tostadores de café -->
+            <!-- Industry 2: Bebidas -->
             <div class="industry-icon-item">
-                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M18 8h1a4 4 0 010 8h-1M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z M6 1v3M10 1v3M14 1v3" /></svg>
-                <span>Tostadores café</span>
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 3.104v5.714a2.25 2.25 0 0 1-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 0 1 4.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0 1 12 15a9.065 9.065 0 0 0-6.23-.693L5 14.5m14.8.8 1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0 1 12 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" /></svg>
+                <span>Bebidas</span>
             </div>
-            <!-- Industry 3: Cosmética natural -->
+            <!-- Industry 3: Cosmética -->
             <div class="industry-icon-item">
-                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 2h6v4H9V2z M8 6h8v2a4 4 0 01-4 4 4 4 0 01-4-4V6z M12 12v8 M8 20h8" /></svg>
-                <span>Cosmética natural</span>
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z" /></svg>
+                <span>Cosmética</span>
             </div>
-            <!-- Industry 4: Chocolaterías -->
+            <!-- Industry 4: Manufactura -->
             <div class="industry-icon-item">
-                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6h16v12H4V6z M4 10h16 M4 14h16 M10 6v12 M16 6v12" /></svg>
-                <span>Chocolaterías</span>
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M11.42 15.17 17.25 21A2.652 2.652 0 0 0 21 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 1 1-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 0 0 4.486-6.336l-3.276 3.277a3.004 3.004 0 0 1-2.25-2.25l3.276-3.276a4.5 4.5 0 0 0-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085m-1.745 1.437L5.909 7.5H4.5L2.25 3.75l1.5-1.5L7.5 4.5v1.409l4.26 4.26m-1.745 1.437 1.745-1.437" /></svg>
+                <span>Manufactura</span>
             </div>
-            <!-- Industry 5: Alimentos artesanales -->
+            <!-- Industry 5: Artesanía -->
             <div class="industry-icon-item">
-                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 2h8v4H8V2z M7 6h10l1 14H6L7 6z M7 10h10" /></svg>
-                <span>Alimentos artesanales</span>
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.53 16.122a3 3 0 0 0-5.78 1.128 2.25 2.25 0 0 1-2.4 2.245 4.5 4.5 0 0 0 8.4-2.245c0-.399-.078-.78-.22-1.128Zm0 0a15.998 15.998 0 0 0 3.388-1.62m-5.043-.025a15.994 15.994 0 0 1 1.622-3.395m3.42 3.42a15.995 15.995 0 0 0 4.764-4.648l3.876-5.814a1.151 1.151 0 0 0-1.597-1.597L14.146 6.32a15.996 15.996 0 0 0-4.649 4.763m3.42 3.42a6.776 6.776 0 0 0-3.42-3.42" /></svg>
+                <span>Artesanía</span>
             </div>
-            <!-- Industry 6: Pequeñas fábricas -->
+            <!-- Industry 6: Industria -->
             <div class="industry-icon-item">
-                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 21h18 M5 21V7l8-4v18 M19 21V11l-6-4 M9 9v.01M9 12v.01M9 15v.01M9 18v.01" /></svg>
-                <span>Pequeñas fábricas</span>
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21a.75.75 0 0 1 .75.75V21" /></svg>
+                <span>Industria</span>
             </div>
         </div>
     </div>
 </section>
 
 <!-- Calculator -->
-<section id="calculadora" class="py-24 sm:py-32 lg:py-40 bg-white section-spacing">
+<section id="calculadora" class="py-16 sm:py-20 lg:py-24 bg-white section-spacing">
     <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="text-center max-w-2xl mx-auto mb-14 sm:mb-16 reveal">
-            <h2 class="text-slate-900">Simula una receta básica</h2>
-            <p class="mt-4 text-lg text-slate-600 leading-relaxed">No necesitas registrarte ni dar tu email. Ingresa tus ingredientes, cantidades y precios — y la calculadora te devuelve el costo total.</p>
+            <h2 class="text-slate-900">Simula el costo de un producto</h2>
+            <p class="mt-4 text-lg text-slate-600 leading-relaxed">No necesitas registrarte ni dar tu email. Ingresa tus insumos, cantidades y precios — y la calculadora te devuelve el costo total.</p>
         </div>
         <div class="max-w-2xl mx-auto reveal">
             <div class="bezel-outer" style="box-shadow: 0 12px 32px rgba(6,95,70,0.08), 0 4px 8px rgba(6,95,70,0.03);">
             <div id="calculator-widget" class="bezel-inner">
-                <h3 class="text-xl font-semibold text-slate-900 mb-1.5">Calcula el costo de tu receta</h3>
-                <p class="text-sm text-slate-500 mb-6">Ingresa tus ingredientes y obtén el costo real al instante.</p>
+                <h3 class="text-xl font-semibold text-slate-900 mb-1.5">Calcula el costo de tu producto</h3>
+                <p class="text-sm text-slate-500 mb-6">Ingresa tus insumos y obtén el costo real al instante.</p>
 
                 <!-- Rate Limit Notice -->
                 <div id="calc-rate-limit-notice" class="hidden mb-6 p-4 rounded-xl bg-amber-50 border border-amber-200">
                     <p class="text-sm text-amber-800 font-medium">Has alcanzado el límite de cálculos gratuitos por hoy.</p>
                     <p class="text-xs text-amber-600 mt-1">
-                        <a href="#precios" class="underline font-semibold hover:text-amber-900">Prueba MiMargen gratis</a> para cálculos ilimitados.
+                        <a href="#" data-trial-open class="underline font-semibold hover:text-amber-900">Prueba <?= htmlspecialchars($appName, ENT_QUOTES, 'UTF-8') ?> gratis</a> para cálculos ilimitados.
                     </p>
                 </div>
 
@@ -1082,8 +1259,8 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
                 <div id="calc-ingredients" class="space-y-3 mb-6">
                     <div class="ingredient-row calc-simple-row">
                         <div>
-                            <label class="block text-xs font-medium text-slate-500 mb-1">Ingrediente</label>
-                            <input type="text" placeholder="Ej: Harina" class="ing-name w-full text-sm px-3 py-2 rounded-lg border border-slate-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 outline-none transition" />
+                            <label class="block text-xs font-medium text-slate-500 mb-1">Insumo</label>
+                            <input type="text" placeholder="Ej: Insumo A" class="ing-name w-full text-sm px-3 py-2 rounded-lg border border-slate-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 outline-none transition" />
                         </div>
                         <div>
                             <label class="block text-xs font-medium text-slate-500 mb-1">Cantidad</label>
@@ -1094,7 +1271,7 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
                             <input type="number" placeholder="1.200" min="0" step="any" class="ing-price w-full text-sm px-3 py-2 rounded-lg border border-slate-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 outline-none transition" />
                         </div>
                         <div class="flex items-end">
-                            <button type="button" class="remove-ing hidden w-8 h-8 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition flex items-center justify-center" aria-label="Eliminar ingrediente">
+                            <button type="button" class="remove-ing hidden w-8 h-8 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition flex items-center justify-center" aria-label="Eliminar insumo">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
                             </button>
                         </div>
@@ -1103,7 +1280,7 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
 
                 <button type="button" id="calc-add-ingredient" class="text-sm text-brand-600 hover:text-brand-700 font-medium mb-6 flex items-center gap-1">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
-                    Añadir ingrediente
+                    Añadir insumo
                 </button>
 
                 <!-- Additional Inputs -->
@@ -1127,7 +1304,7 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
                 </div>
 
                 <!-- Calculate Button -->
-                <button type="button" id="calc-calculate" class="btn-primary-large btn-premium w-full rounded-full text-white font-semibold">
+                <button type="button" id="calc-calculate" class="btn-premium w-full py-3.5 rounded-full bg-brand-600 text-white font-semibold hover:bg-brand-700 shadow-brand-lg hover:shadow-brand-xl">
                     Calcular costo
                 </button>
 
@@ -1164,7 +1341,7 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
         </div>
     </div>
 </section>
-<section id="testimonios" class="py-24 sm:py-32 section-brand-tint section-spacing">
+<section id="testimonios" class="py-16 sm:py-20 section-brand-tint section-spacing">
     <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="text-center max-w-2xl mx-auto mb-14 sm:mb-16 reveal">
             <h2 class="text-slate-900">Lo que dicen quienes ya <span class="text-brand-600">lo usan</span></h2>
@@ -1182,14 +1359,14 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
                             <span class="text-amber-400">★</span>
                         </div>
                         <blockquote class="relative text-slate-700 text-sm leading-relaxed mb-6 pl-0 quote-icon">
-                            "Antes pensaba que ganaba $500 por pan. Con MiMargen descubrí que, con la merma y el tiempo de amasado, ganaba $120. Ajusté precios y ahora mi margen real es del 34%. Ojalá lo hubiera usado antes."
+                            "Antes pensaba que ganaba $500 por unidad. Con <?= htmlspecialchars($appName, ENT_QUOTES, 'UTF-8') ?> descubrí que, con la merma y el tiempo de producción, ganaba $120. Ajusté precios y ahora mi margen real es del 34%. Ojalá lo hubiera usado antes."
                         </blockquote>
                     </div>
                     <div class="border-t border-slate-100 pt-4 flex items-center gap-3">
                         <div class="avatar-initials bg-brand-600">CM</div>
                         <div class="flex-1 min-w-0">
                             <p class="font-bold text-slate-900 text-sm">Carolina Muñoz</p>
-                            <p class="text-slate-500 text-xs">Panadería artesanal, Santiago</p>
+                            <p class="text-slate-500 text-xs">Taller de manufactura, Santiago</p>
                         </div>
                         <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 whitespace-nowrap">Margen: 34%</span>
                     </div>
@@ -1207,14 +1384,14 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
                             <span class="text-amber-400">★</span>
                         </div>
                         <blockquote class="relative text-slate-700 text-sm leading-relaxed mb-6 pl-0 quote-icon">
-                            "Perdía plata en tres de mis blends y no tenía idea. MiMargen me mostró exactamente cuáles y por qué. En dos semanas ya había corregido los precios. Hoy facturo un 22% más con el mismo volumen."
+                            "Perdía plata en tres de mis productos y no tenía idea. <?= htmlspecialchars($appName, ENT_QUOTES, 'UTF-8') ?> me mostró exactamente cuáles y por qué. En dos semanas ya había corregido los precios. Hoy facturo un 22% más con el mismo volumen."
                         </blockquote>
                     </div>
                     <div class="border-t border-slate-100 pt-4 flex items-center gap-3">
                         <div class="avatar-initials bg-amber-600">DA</div>
                         <div class="flex-1 min-w-0">
                             <p class="font-bold text-slate-900 text-sm">Diego Aravena</p>
-                            <p class="text-slate-500 text-xs">Tostador de café, Valparaíso</p>
+                            <p class="text-slate-500 text-xs">Productora de cosméticos, Valparaíso</p>
                         </div>
                         <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 whitespace-nowrap">+22% facturación</span>
                     </div>
@@ -1232,14 +1409,14 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
                             <span class="text-amber-400">★</span>
                         </div>
                         <blockquote class="relative text-slate-700 text-sm leading-relaxed mb-6 pl-0 quote-icon">
-                            "Tenía todo en Excel y era un desastre. Ahora creo la receta, pongo el precio y veo mi margen al instante. Además, las facturas electrónicas me salen directo desde ahí. Me ahorré contratar a alguien más para eso."
+                            "Tenía todo en Excel y era un desastre. Ahora creo el producto, pongo el precio y veo mi margen al instante. Además, las facturas electrónicas me salen directo desde ahí. Me ahorré contratar a alguien más para eso."
                         </blockquote>
                     </div>
                     <div class="border-t border-slate-100 pt-4 flex items-center gap-3">
                         <div class="avatar-initials bg-purple-600">FL</div>
                         <div class="flex-1 min-w-0">
                             <p class="font-bold text-slate-900 text-sm">Francisca López</p>
-                            <p class="text-slate-500 text-xs">Cosmética natural, Concepción</p>
+                            <p class="text-slate-500 text-xs">Pequeña fábrica textil, Concepción</p>
                         </div>
                         <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 whitespace-nowrap">Sin Excel</span>
                     </div>
@@ -1250,11 +1427,11 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
 </section>
 
 <!-- Pricing -->
-<section id="precios" class="py-24 sm:py-32 lg:py-40 bg-white section-spacing">
+<section id="precios" class="py-16 sm:py-20 lg:py-24 bg-white section-spacing">
     <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="text-center max-w-2xl mx-auto mb-20 reveal">
+        <div class="text-center max-w-2xl mx-auto mb-16 reveal">
             <h2 class="text-slate-900">Planes que crecen con tu <span class="text-brand-600">negocio</span></h2>
-            <p class="mt-6 text-lg text-slate-600 leading-relaxed">Todos los planes incluyen 14 días gratis. Sin tarjeta de crédito. Sin compromiso.</p>
+            <p class="mt-5 text-lg text-slate-600 leading-relaxed">Todos los planes incluyen 14 días gratis. Sin tarjeta de crédito. Sin compromiso.</p>
         </div>
         <div class="grid md:grid-cols-3 gap-8 lg:gap-10 max-w-5xl mx-auto items-center">
             <!-- Plan 1: Emprendedor -->
@@ -1271,7 +1448,7 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
                     <ul class="space-y-3 mb-8">
                         <li class="flex items-start gap-2 text-sm text-slate-700">
                             <svg class="w-5 h-5 text-green-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                            Hasta 50 recetas
+                            Hasta 50 productos
                         </li>
                         <li class="flex items-start gap-2 text-sm text-slate-700">
                             <svg class="w-5 h-5 text-green-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
@@ -1311,7 +1488,7 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
                         <ul class="space-y-3 mb-8">
                             <li class="flex items-start gap-2 text-sm text-slate-700">
                                 <svg class="w-5 h-5 text-green-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                                Recetas ilimitadas
+                                Productos ilimitados
                             </li>
                             <li class="flex items-start gap-2 text-sm text-slate-700">
                                 <svg class="w-5 h-5 text-green-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
@@ -1383,7 +1560,7 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
                             Onboarding personalizado
                         </li>
                     </ul>
-                    <a href="#precios" class="btn-secondary w-full inline-flex items-center justify-center font-semibold rounded-full text-sm px-5 py-3.5 bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 hover:border-slate-300 shadow-refined-sm">Hablar con ventas</a>
+                    <a href="https://wa.me/<?= htmlspecialchars($contactWhatsApp, ENT_QUOTES, 'UTF-8') ?>?text=<?= rawurlencode('Hola, me interesa el plan Empresa de ' . $appName . '. Quiero hablar con ventas.') ?>" target="_blank" rel="noopener" class="btn-secondary w-full inline-flex items-center justify-center font-semibold rounded-full text-sm px-5 py-3.5 bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 hover:border-slate-300 shadow-refined-sm">Hablar con ventas</a>
                 </div>
             </div>
         </div>
@@ -1392,7 +1569,7 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
 </section>
 
 <!-- FAQ -->
-<section id="faq" class="py-24 sm:py-32 section-slate-tint">
+<section id="faq" class="py-16 sm:py-20 section-slate-tint">
     <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="text-center max-w-2xl mx-auto mb-14 sm:mb-16 reveal">
             <h2 class="text-slate-900">Preguntas <span class="text-brand-600">frecuentes</span></h2>
@@ -1401,37 +1578,37 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
             <!-- FAQ 1 -->
             <details class="group bezel-outer bezel-card reveal faq-open">
                 <summary class="flex items-center justify-between cursor-pointer px-6 py-5 text-base font-semibold text-slate-900 hover:text-brand-600 transition-colors duration-350 list-none" style="transition-timing-function: var(--ease-premium)">
-                    ¿Qué es MiMargen y para qué sirve?
+                    ¿Qué es <?= htmlspecialchars($appName, ENT_QUOTES, 'UTF-8') ?> y para qué sirve?
                     <svg class="w-5 h-5 text-slate-400 group-open:rotate-180 transition-transform duration-350 shrink-0 ml-4" style="transition-timing-function: var(--ease-premium)" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
                     </svg>
                 </summary>
                 <div class="px-6 pb-5 text-sm text-slate-600 leading-relaxed">
-                    MiMargen es un software de gestión para pequeños productores que te permite calcular el costo real de tus productos usando recetas, controlar tu inventario, gestionar ventas y emitir facturación electrónica. Todo en un solo lugar.
+                    <?= htmlspecialchars($appName, ENT_QUOTES, 'UTF-8') ?> es un software de gestión para pequeños fabricantes y productores que te permite calcular el costo real de tus productos a partir de sus insumos, controlar tu inventario, gestionar ventas y emitir facturación electrónica. Todo en un solo lugar.
                 </div>
             </details>
             <!-- FAQ 2 -->
             <details class="group bezel-outer bezel-card reveal reveal-delay-1 faq-open">
                 <summary class="flex items-center justify-between cursor-pointer px-6 py-5 text-base font-semibold text-slate-900 hover:text-brand-600 transition-colors duration-350 list-none" style="transition-timing-function: var(--ease-premium)">
-                    ¿Cómo se calcula el costo de producción con recetas?
+                    ¿Cómo se calcula el costo de producción?
                     <svg class="w-5 h-5 text-slate-400 group-open:rotate-180 transition-transform duration-350 shrink-0 ml-4" style="transition-timing-function: var(--ease-premium)" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
                     </svg>
                 </summary>
                 <div class="px-6 pb-5 text-sm text-slate-600 leading-relaxed">
-                    Creas una receta con los ingredientes y cantidades que usas. MiMargen toma el costo de cada insumo de tu inventario, le suma la mano de obra, los gastos fijos que asignes y la merma del proceso. El resultado es el costo real por unidad producida.
+                    Defines un producto con los insumos y cantidades que usas. <?= htmlspecialchars($appName, ENT_QUOTES, 'UTF-8') ?> toma el costo de cada insumo de tu inventario, le suma la mano de obra, los gastos fijos que asignes y la merma del proceso. El resultado es el costo real por unidad producida.
                 </div>
             </details>
             <!-- FAQ 3 -->
             <details class="group bezel-outer bezel-card reveal reveal-delay-2 faq-open">
                 <summary class="flex items-center justify-between cursor-pointer px-6 py-5 text-base font-semibold text-slate-900 hover:text-brand-600 transition-colors duration-350 list-none" style="transition-timing-function: var(--ease-premium)">
-                    ¿MiMargen sirve si no hago alimentos?
+                    ¿Para qué tipo de negocios sirve?
                     <svg class="w-5 h-5 text-slate-400 group-open:rotate-180 transition-transform duration-350 shrink-0 ml-4" style="transition-timing-function: var(--ease-premium)" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
                     </svg>
                 </summary>
                 <div class="px-6 pb-5 text-sm text-slate-600 leading-relaxed">
-                    Sí. Aunque el concepto de "receta" viene del mundo gastronómico, funciona para cualquier producto que se fabrique combinando materiales: cosméticos, velas, muebles, textiles. Si transformas insumos en un producto terminado, MiMargen te sirve.
+                    Para cualquier negocio que transforme insumos en un producto terminado: manufactura, cosmética, velas, muebles, textiles, alimentos o producción artesanal. Si combinas materiales para fabricar algo, <?= htmlspecialchars($appName, ENT_QUOTES, 'UTF-8') ?> te sirve.
                 </div>
             </details>
             <!-- FAQ 4 -->
@@ -1443,7 +1620,7 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
                     </svg>
                 </summary>
                 <div class="px-6 pb-5 text-sm text-slate-600 leading-relaxed">
-                    Sí. MiMargen está integrado con el SII de Chile para emitir boletas, facturas y guías de despacho electrónicas directamente desde la plataforma. No necesitas software adicional.
+                    Sí. <?= htmlspecialchars($appName, ENT_QUOTES, 'UTF-8') ?> está integrado con el SII de Chile para emitir boletas, facturas y guías de despacho electrónicas directamente desde la plataforma. No necesitas software adicional.
                 </div>
             </details>
             <!-- FAQ 5 -->
@@ -1467,19 +1644,19 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
                     </svg>
                 </summary>
                 <div class="px-6 pb-5 text-sm text-slate-600 leading-relaxed">
-                    La merma es la pérdida de materia prima durante el proceso de producción (evaporación, desperdicio, errores). MiMargen la calcula automáticamente para que conozcas el costo real de cada producto y no pierdas plata sin saberlo.
+                    La merma es la pérdida de materia prima durante el proceso de producción (evaporación, desperdicio, errores). <?= htmlspecialchars($appName, ENT_QUOTES, 'UTF-8') ?> la calcula automáticamente para que conozcas el costo real de cada producto y no pierdas plata sin saberlo.
                 </div>
             </details>
             <!-- FAQ 7 -->
             <details class="group bezel-outer bezel-card reveal faq-open">
                 <summary class="flex items-center justify-between cursor-pointer px-6 py-5 text-base font-semibold text-slate-900 hover:text-brand-600 transition-colors duration-350 list-none" style="transition-timing-function: var(--ease-premium)">
-                    ¿MiMargen funciona para negocios fuera de Chile?
+                    ¿<?= htmlspecialchars($appName, ENT_QUOTES, 'UTF-8') ?> funciona para negocios fuera de Chile?
                     <svg class="w-5 h-5 text-slate-400 group-open:rotate-180 transition-transform duration-350 shrink-0 ml-4" style="transition-timing-function: var(--ease-premium)" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
                     </svg>
                 </summary>
                 <div class="px-6 pb-5 text-sm text-slate-600 leading-relaxed">
-                    Sí. Aunque la facturación electrónica está optimizada para Chile, el costeo por receta, inventario y gestión de ventas funcionan para cualquier país. Puedes usar MiMargen en cualquier moneda.
+                    Sí. Aunque la facturación electrónica está optimizada para Chile, el costeo de productos, inventario y gestión de ventas funcionan para cualquier país. Puedes usar <?= htmlspecialchars($appName, ENT_QUOTES, 'UTF-8') ?> en cualquier moneda.
                 </div>
             </details>
         </div>
@@ -1487,29 +1664,29 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
 </section>
 
 <!-- Final CTA -->
-<section class="py-32 sm:py-40 lg:py-48 section-dark-cta text-white">
-    <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="text-center">
+<section class="section-dark-cta text-white section-divider-strong" style="padding-block: clamp(7rem, 11vw, 11rem);">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="text-center max-w-3xl mx-auto">
             <h2 class="text-white reveal">
                 Deja de adivinar. <span class="text-brand-400">Empieza a saber.</span>
             </h2>
             <p class="mt-6 text-lg sm:text-xl text-slate-300 leading-relaxed reveal reveal-delay-1">
-                Cada día que pasas sin conocer tu margen real es un día que puedes estar perdiendo plata. Prueba MiMargen gratis durante 14 días y conoce tu ganancia de verdad.
+                Cada día que pasas sin conocer tu margen real es un día que puedes estar perdiendo plata. Prueba <?= htmlspecialchars($appName, ENT_QUOTES, 'UTF-8') ?> gratis durante 14 días y conoce tu ganancia de verdad.
             </p>
 
             <!-- Stats -->
-            <div class="mt-12 grid grid-cols-3 gap-8 reveal reveal-delay-1">
+            <div class="mt-16 grid grid-cols-3 gap-8 reveal reveal-delay-1">
                 <div class="text-center">
                     <div class="text-3xl sm:text-4xl font-bold text-brand-400">500+</div>
-                    <div class="text-sm text-slate-400 mt-2">Productores activos</div>
+                    <div class="text-sm text-slate-400 mt-1">Negocios activos</div>
                 </div>
                 <div class="text-center">
                     <div class="text-3xl sm:text-4xl font-bold text-brand-400">34%</div>
-                    <div class="text-sm text-slate-400 mt-2">Margen promedio</div>
+                    <div class="text-sm text-slate-400 mt-1">Margen promedio</div>
                 </div>
                 <div class="text-center">
                     <div class="text-3xl sm:text-4xl font-bold text-brand-400">14 días</div>
-                    <div class="text-sm text-slate-400 mt-2">Prueba gratis</div>
+                    <div class="text-sm text-slate-400 mt-1">Prueba gratis</div>
                 </div>
             </div>
 
@@ -1529,15 +1706,15 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
                 </div>
             </div>
 
-            <div class="mt-12 flex flex-col sm:flex-row gap-4 justify-center reveal reveal-delay-2">
-                <a href="#precios" class="btn-primary-large btn-premium inline-flex items-center justify-center font-semibold rounded-full text-white group">
+            <div class="mt-10 flex flex-col sm:flex-row gap-4 justify-center reveal reveal-delay-2">
+                <a href="#" data-trial-open class="btn-primary-large btn-premium inline-flex items-center justify-center font-semibold rounded-full text-white group">
                     Empezar gratis — sin tarjeta
                     <span class="btn-icon ml-2 inline-flex">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
                     </span>
                 </a>
-                <a href="https://wa.me/<?= htmlspecialchars($contactWhatsApp, ENT_QUOTES, 'UTF-8') ?>" class="btn-premium inline-flex items-center justify-center px-6 py-3 rounded-full border border-slate-600 text-white text-sm font-semibold hover:bg-slate-800">
-                    <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                <a href="https://wa.me/<?= htmlspecialchars($contactWhatsApp, ENT_QUOTES, 'UTF-8') ?>" class="btn-premium inline-flex items-center justify-center px-8 py-4 rounded-full border border-slate-600 text-white text-base font-semibold hover:bg-slate-800">
+                    <svg class="w-5 h-5 mr-3" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
                     Hablar por WhatsApp
                 </a>
             </div>
@@ -1548,15 +1725,15 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
 
 <!-- Footer -->
 <footer class="bg-slate-950 text-slate-400">
-    <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-        <div class="grid grid-cols-1 md:grid-cols-12 gap-10">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-8">
             <!-- Brand Column -->
             <div class="md:col-span-5">
-                <div class="flex items-center gap-2.5 mb-5">
-                    <img src="/assets/logo-icon.svg" alt="MiMargen" class="w-8 h-8">
-                    <span class="text-lg font-bold text-white">Mi<span class="text-brand-400">Margen</span></span>
+                <div class="flex items-center gap-2.5 mb-4">
+                    <img src="<?= $brandLogo ? htmlspecialchars($brandLogo, ENT_QUOTES, 'UTF-8') : '/assets/logo-icon.svg' ?>" alt="<?= htmlspecialchars($appName, ENT_QUOTES, 'UTF-8') ?>" class="w-8 h-8" style="width:1.75rem;height:1.75rem;">
+                    <span class="text-base font-bold text-white"><?= htmlspecialchars($appName, ENT_QUOTES, 'UTF-8') ?></span>
                 </div>
-                <p class="text-sm text-slate-400 leading-relaxed max-w-sm mb-6">
+                <p class="text-sm text-slate-400 leading-relaxed max-w-sm mb-5">
                     Conoce el costo real de cada producto que fabricas. Calcula tu margen de ganancia de verdad.
                 </p>
                 <div class="flex items-center gap-4">
@@ -1570,7 +1747,7 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
                         <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
                     </a>
                     <?php endif; ?>
-                    <a href="https://youtube.com/@mimargen" class="text-slate-400 hover:text-brand-400 transition-colors" aria-label="YouTube">
+                    <a href="https://youtube.com/@ottertech308" class="text-slate-400 hover:text-brand-400 transition-colors" aria-label="YouTube">
                         <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
                     </a>
                 </div>
@@ -1578,18 +1755,19 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
 
             <!-- Product Column -->
             <div class="md:col-span-3">
-                <h3 class="text-sm font-semibold text-white uppercase tracking-wider mb-5">Producto</h3>
+                <h3 class="text-sm font-semibold text-white uppercase tracking-wider mb-4">Producto</h3>
                 <ul class="space-y-3">
                     <li><a href="#producto" class="text-sm hover:text-brand-400 transition-colors">Características</a></li>
                     <li><a href="#precios" class="text-sm hover:text-brand-400 transition-colors">Precios</a></li>
                     <li><a href="#calculadora" class="text-sm hover:text-brand-400 transition-colors">Calculadora gratuita</a></li>
                     <li><a href="#faq" class="text-sm hover:text-brand-400 transition-colors">Preguntas frecuentes</a></li>
+                    <li><a href="#" data-client-open class="text-sm hover:text-brand-400 transition-colors">Ya soy cliente</a></li>
                 </ul>
             </div>
 
             <!-- Contact Column -->
             <div class="md:col-span-4">
-                <h3 class="text-sm font-semibold text-white uppercase tracking-wider mb-5">Contacto</h3>
+                <h3 class="text-sm font-semibold text-white uppercase tracking-wider mb-4">Contacto</h3>
                 <ul class="space-y-3">
                     <?php if (!empty($contactEmail)): ?>
                     <li>
@@ -1617,83 +1795,150 @@ $jsonLdString = json_encode($jsonLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNI
             </div>
         </div>
 
-        <div class="border-t border-slate-800 mt-12 pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
-            <p class="text-xs text-slate-500">&copy; <?= date('Y') ?> MiMargen. Todos los derechos reservados.</p>
-            <p class="text-xs text-slate-500">
-                Un producto de <a href="https://ottertech.com" target="_blank" rel="noopener" class="text-brand-400 hover:text-brand-300 transition-colors font-medium">OtterTech</a>
-            </p>
+        <div class="border-t border-slate-800 mt-12 pt-8 flex flex-col md:flex-row justify-between items-center gap-4" style="margin-top:2.5rem;padding-top:1.5rem;">
+            <p class="text-xs text-slate-500">&copy; <?= date('Y') ?> <?= htmlspecialchars($appName, ENT_QUOTES, 'UTF-8') ?>. Todos los derechos reservados. Hecho en Chile.</p>
             <div class="flex items-center gap-6">
                 <a href="#" title="Próximamente" class="text-xs text-slate-500 hover:text-slate-400 transition-colors">Términos</a>
                 <a href="#" title="Próximamente" class="text-xs text-slate-500 hover:text-slate-400 transition-colors">Privacidad</a>
+                <a href="#" data-cookie-open class="text-xs text-slate-500 hover:text-slate-400 transition-colors">Preferencias de cookies</a>
             </div>
         </div>
     </div>
 </footer>
 
-<!-- Mobile menu toggle -->
-<script>
-(function() {
-    var btn = document.getElementById('mobile-menu-btn');
-    var menu = document.getElementById('mobile-menu');
-    if (btn && menu) {
-        btn.addEventListener('click', function() {
-            menu.classList.toggle('hidden');
-        });
-        menu.querySelectorAll('a').forEach(function(link) {
-            link.addEventListener('click', function() {
-                menu.classList.add('hidden');
-            });
-        });
-    }
-})();
-</script>
+<!-- ============ Modal "Ya soy cliente" ============ -->
+<div class="client-modal" id="client-modal" role="dialog" aria-modal="true" aria-labelledby="client-modal-title" aria-hidden="true"
+     data-base-domain="<?= htmlspecialchars($baseDomain, ENT_QUOTES, 'UTF-8') ?>"
+     data-scheme="<?= htmlspecialchars($scheme, ENT_QUOTES, 'UTF-8') ?>"
+     data-scroll-contact="<?= ($formSuccess || $formError !== '') ? '1' : '0' ?>">
+    <div class="client-modal-box">
+        <h3 id="client-modal-title">Ingresa a tu cuenta</h3>
+        <p>Cada cliente tiene su propio subdominio. Escribe el de tu empresa y te llevamos al acceso.</p>
+        <div class="client-modal-row">
+            <label class="client-modal-sr" for="client-slug">Subdominio</label>
+            <input type="text" id="client-slug" placeholder="tu-empresa" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false">
+            <span class="client-modal-suffix">.<?= htmlspecialchars($baseDomain, ENT_QUOTES, 'UTF-8') ?></span>
+        </div>
+        <div class="client-error" id="client-error" aria-live="polite"></div>
+        <div class="client-modal-actions">
+            <button type="button" class="client-modal-btn client-modal-btn-ghost" id="client-cancel">Cancelar</button>
+            <button type="button" class="client-modal-btn client-modal-btn-primary" id="client-go">Ir a mi cuenta</button>
+        </div>
+    </div>
+</div>
+
+<!-- ============ Modal "Solicita tu prueba" (captura de lead) ============ -->
+<div class="client-modal" id="trial-modal" role="dialog" aria-modal="true" aria-labelledby="trial-modal-title" aria-hidden="true">
+    <div class="client-modal-box" style="max-width: 460px;">
+        <form id="trial-form" novalidate>
+            <input type="hidden" name="action" value="lead">
+            <!-- Honeypot — debe quedar oculto -->
+            <input type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;opacity:0;height:0;width:0">
+
+            <h3 id="trial-modal-title">Solicita tu prueba gratis</h3>
+            <p>Déjanos tus datos y te contactamos para activar tus 14 días — sin tarjeta de crédito.</p>
+
+            <div class="space-y-4">
+                <div>
+                    <label for="trial-nombre" class="block text-xs font-medium text-slate-600 mb-1.5">Nombre</label>
+                    <input type="text" id="trial-nombre" name="nombre" required autocomplete="name"
+                           class="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-brand-400 focus:ring-2 focus:ring-brand-100 outline-none transition-all bg-slate-50/50 focus:bg-white"
+                           placeholder="Tu nombre">
+                </div>
+                <div>
+                    <label for="trial-empresa" class="block text-xs font-medium text-slate-600 mb-1.5">Empresa</label>
+                    <input type="text" id="trial-empresa" name="empresa" required autocomplete="organization"
+                           class="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-brand-400 focus:ring-2 focus:ring-brand-100 outline-none transition-all bg-slate-50/50 focus:bg-white"
+                           placeholder="Nombre de tu empresa">
+                </div>
+                <div>
+                    <label for="trial-email" class="block text-xs font-medium text-slate-600 mb-1.5">Correo electrónico</label>
+                    <input type="email" id="trial-email" name="email" required autocomplete="email"
+                           class="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-brand-400 focus:ring-2 focus:ring-brand-100 outline-none transition-all bg-slate-50/50 focus:bg-white"
+                           placeholder="tu@email.com">
+                </div>
+                <div>
+                    <label for="trial-telefono" class="block text-xs font-medium text-slate-600 mb-1.5">Teléfono <span class="text-slate-400 font-normal">(opcional)</span></label>
+                    <input type="tel" id="trial-telefono" name="telefono" autocomplete="tel"
+                           class="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-brand-400 focus:ring-2 focus:ring-brand-100 outline-none transition-all bg-slate-50/50 focus:bg-white"
+                           placeholder="+56 9 ...">
+                </div>
+            </div>
+
+            <div class="client-error" id="trial-error" aria-live="polite"></div>
+
+            <div class="client-modal-actions">
+                <button type="button" class="client-modal-btn client-modal-btn-ghost" id="trial-cancel">Cancelar</button>
+                <button type="submit" class="client-modal-btn client-modal-btn-primary" id="trial-submit">Enviar solicitud</button>
+            </div>
+        </form>
+
+        <div id="trial-success" style="display:none; text-align:center; padding: 12px 0 6px;">
+            <div style="margin:0 auto 14px; width:48px; height:48px; border-radius:9999px; background:#d1fae5; color:#059669; display:flex; align-items:center; justify-content:center;">
+                <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+            </div>
+            <h3 style="margin:0 0 6px;">¡Gracias! Recibimos tu solicitud.</h3>
+            <p style="margin:0 0 16px;">Te contactaremos muy pronto para activar tu prueba.</p>
+            <div class="client-modal-actions">
+                <button type="button" class="client-modal-btn client-modal-btn-primary" id="trial-close">Cerrar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ===== Banner de cookies (consentimiento opt-in) ===== -->
+<div class="cookie-banner" id="cookie-banner" role="region" aria-label="Aviso de cookies">
+    <div class="cookie-banner-inner">
+        <div class="cookie-banner-text">
+            Usamos cookies propias y de terceros para que el sitio funcione y, solo con tu permiso, para analítica y marketing.
+            Puedes aceptarlas todas, rechazarlas o elegir cuáles permitir. Tu decisión se puede cambiar cuando quieras desde «Preferencias de cookies» en el pie de página.
+        </div>
+        <div class="cookie-banner-actions">
+            <button type="button" class="cookie-btn cookie-btn-link" id="cookie-customize">Personalizar</button>
+            <button type="button" class="cookie-btn cookie-btn-ghost" id="cookie-reject">Rechazar</button>
+            <button type="button" class="cookie-btn cookie-btn-primary" id="cookie-accept">Aceptar</button>
+        </div>
+    </div>
+</div>
+
+<!-- ===== Modal de preferencias de cookies (control granular + retracto) ===== -->
+<div class="client-modal" id="cookie-prefs" role="dialog" aria-modal="true" aria-labelledby="cookie-prefs-title" aria-hidden="true">
+    <div class="client-modal-box" style="max-width: 520px;">
+        <h3 id="cookie-prefs-title">Preferencias de cookies</h3>
+        <p>Elige qué cookies permites. Las estrictamente necesarias siempre están activas; las demás solo se instalan si las aceptas.</p>
+
+        <div class="cookie-cat">
+            <div>
+                <h4>Estrictamente necesarias</h4>
+                <p>Imprescindibles para el funcionamiento del sitio y para recordar tu elección de cookies. No se pueden desactivar.</p>
+            </div>
+            <label class="cookie-switch"><input type="checkbox" checked disabled aria-label="Cookies necesarias (siempre activas)"><span></span></label>
+        </div>
+        <div class="cookie-cat">
+            <div>
+                <h4>Analíticas</h4>
+                <p>Nos ayudan a entender cómo se usa el sitio para mejorarlo (medición de uso).</p>
+            </div>
+            <label class="cookie-switch"><input type="checkbox" id="cookie-cat-analytics" aria-label="Cookies analíticas"><span></span></label>
+        </div>
+        <div class="cookie-cat">
+            <div>
+                <h4>Marketing y publicidad</h4>
+                <p>Permiten mostrarte contenido y anuncios relevantes (remarketing y redes sociales).</p>
+            </div>
+            <label class="cookie-switch"><input type="checkbox" id="cookie-cat-marketing" aria-label="Cookies de marketing"><span></span></label>
+        </div>
+
+        <div class="client-modal-actions" style="flex-wrap: wrap;">
+            <button type="button" class="client-modal-btn client-modal-btn-ghost" id="cookie-prefs-reject">Rechazar todas</button>
+            <button type="button" class="client-modal-btn client-modal-btn-ghost" id="cookie-prefs-save">Guardar preferencias</button>
+            <button type="button" class="client-modal-btn client-modal-btn-primary" id="cookie-prefs-accept">Aceptar todas</button>
+        </div>
+    </div>
+</div>
 
 <script src="/assets/calculator.js" defer></script>
-
-<!-- IntersectionObserver for .reveal elements -->
-<script>
-(function() {
-    'use strict';
-    var prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    var reveals = document.querySelectorAll('.reveal');
-    if (prefersReducedMotion) {
-        reveals.forEach(function(el) { el.classList.add('visible'); });
-        return;
-    }
-    if (!('IntersectionObserver' in window)) {
-        reveals.forEach(function(el) { el.classList.add('visible'); });
-        return;
-    }
-    var observer = new IntersectionObserver(function(entries) {
-        entries.forEach(function(entry) {
-            if (entry.isIntersecting) {
-                entry.target.classList.add('visible');
-                observer.unobserve(entry.target);
-            }
-        });
-    }, { threshold: 0.1 });
-    reveals.forEach(function(el) { observer.observe(el); });
-})();
-</script>
-
-<!-- Header scroll effect -->
-<script>
-(function() {
-    'use strict';
-    var header = document.getElementById('site-header');
-    if (!header) return;
-    var lastScroll = 0;
-    window.addEventListener('scroll', function() {
-        var currentScroll = window.pageYOffset;
-        if (currentScroll > 50) {
-            header.classList.add('header-solid');
-        } else {
-            header.classList.remove('header-solid');
-        }
-        lastScroll = currentScroll;
-    }, { passive: true });
-})();
-</script>
+<script src="/assets/landing.js" defer></script>
 
 </body>
 </html>
